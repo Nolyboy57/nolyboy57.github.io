@@ -2,12 +2,12 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.9
-terminé: v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur)
+version: 5.10
+terminé: v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur), v5.10 (synchro Google Drive manuelle : boutons Envoyer/Récupérer dans Données › Sauvegarde)
 en cours: (rien)
 prochaine: (rien)
 notes (ne garder que ce qui sert aux futures modifications) :
-- Fichier unique, sans build. Plafond de taille : ~6 520 lignes. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
+- Fichier unique, sans build. Plafond de taille : ~6 650 lignes (relevé pour la synchro Drive). Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
 - Couleurs : jamais en dur ; COLORS + USER_COLOR_POOL, variables CSS (--accent, --surface…). Ne pas renommer ids HTML, fonctions ni clés de stockage ; stockage via readStored/writeStored.
 - Navigation : NAV_SECTIONS (Accueil, Séances, Statistiques, Exercices, Données) ; switchView(id). Données = Profils · Import · Sauvegarde (backupScope : all par défaut, profile, exercises).
 - Modales : openModal(html, preserveScroll, extraClass) ; classe 'session-modal' = éditeur de séance (plein écran ≤ 600 px, classe .is-session sur #modal-bg).
@@ -16,6 +16,7 @@ notes (ne garder que ce qui sert aux futures modifications) :
 - Historique : exerciseHistoryTableHtml(rows, readOnly) partagé (modale + comparateur) ; computeExerciseFullHistory(exId, variant, pulley, sessions) ; comparateur = renderCompareHistory (blocs <details> A puis B, lecture seule).
 - Éditeur : le champ caché [data-entry-exercise] est la source de vérité de l'exercice ; la liste de variante n'existe que si l'exercice a des variantes ; persistSessionEditor relit le DOM. Séance validée = lecture seule.
 - Accueil : « Reprendre » → openSessionEditor ; « Résumé » et séances récentes → openSessionModal. Séance coop : N profils (setsByUser, coopParticipants), pas de bouton Valider en coop.
+- Synchro Drive : bloc « SYNCHRO GOOGLE DRIVE » (DRIVE_CLIENT_ID, portée drive.file, fichier fonte-sync.json en JSON lisible) ; drivePush/drivePull manuels, garde-fous (fichier Drive modifié depuis la dernière synchro, appareil jamais synchronisé, plus de séances ici que sur Drive). Métadonnées de synchro en localStorage (DRIVE_META_KEY). buildGlobalBackupPayload/applyGlobalBackupData partagés avec la sauvegarde fichier. Page servie en https (GitHub Pages), pas en file://.
 - Décisions : carte « Répartition par type de séance » conservée ; filtre Statut « à classer » conservé (alerte Accueil, import, puce « À classer ✕ »). Points connus : aucun.
 -->
 <meta charset="UTF-8">
@@ -25,6 +26,7 @@ notes (ne garder que ce qui sert aux futures modifications) :
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{
   --bg:#101113;
@@ -5508,6 +5510,15 @@ function renderBackupView(){
         Espace utilisé : ${ko(localStorageUsage.appBytes)} par FONTE · ${ko(localStorageUsage.totalBytes)} au total sur ce domaine (données compressées, limite d'environ 5 Mo par navigateur).
       </div>
     </div>
+    <div class="card" id="drive-card" style="margin-top:14px;">
+      <div class="section-title">Synchronisation Google Drive</div>
+      <p style="color:var(--muted);font-size:13.5px;margin:0 0 10px;">Un fichier « fonte-sync.json » (tous les profils) sur ton Drive. Envoie depuis l'appareil où tu viens d'enregistrer, récupère sur l'autre. Rien n'est automatique : c'est toi qui décides.</p>
+      <div id="drive-status" style="font-size:12.5px;color:var(--muted);margin:0 0 14px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary" id="drive-push-btn">Envoyer vers Drive</button>
+        <button class="btn ghost" id="drive-pull-btn">Récupérer depuis Drive</button>
+      </div>
+    </div>
     <details class="details-block" style="border-color:rgba(212,106,106,0.3);"><summary style="color:var(--bad);">Zone de danger</summary><div class="details-body">
       <p style="color:var(--muted);font-size:13.5px;margin-top:0;">Supprime uniquement les séances du profil choisi ci-dessous. La base d'exercices (partagée) et les séances des autres profils ne sont pas touchées. Pense à exporter une sauvegarde avant.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -5534,6 +5545,9 @@ function renderBackupView(){
   on('export-exercises-btn', exportExercisesOnly);
   on('restore-exercises-btn', ()=> document.getElementById('restore-exercises-file').click());
   onChange('restore-exercises-file', handleRestoreExercisesFile);
+  on('drive-push-btn', drivePush);
+  on('drive-pull-btn', drivePull);
+  updateDriveStatus();
   on('reset-btn', resetAllData);
   on('reset-user-btn', ()=> resetUserData(document.getElementById('reset-user-select').value));
   if(scope==='all'){
@@ -5549,6 +5563,120 @@ function renderBackupView(){
     })();
   }
 }
+/* ============================= SYNCHRO GOOGLE DRIVE ============================= */
+// Un seul fichier JSON (fonte-sync.json) créé par l'appli sur le Drive de l'utilisateur (portée drive.file).
+// Synchro manuelle : « Envoyer » et « Récupérer », avec garde-fous contre les écrasements involontaires.
+const DRIVE_CLIENT_ID = '687638705532-l7jm7268a6r2pd6h559npodl5puk4r1p.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILE_NAME = 'fonte-sync.json';
+const DRIVE_META_KEY = STORAGE_PREFIX + 'drive-meta'; // { fileId, remoteModified, syncedAt }
+let driveToken = null, driveTokenExp = 0, driveBusy = false;
+function loadDriveMeta(){ try{ return JSON.parse(localStorage.getItem(DRIVE_META_KEY)) || {}; }catch(e){ return {}; } }
+function saveDriveMeta(m){ try{ localStorage.setItem(DRIVE_META_KEY, JSON.stringify(m)); }catch(e){} }
+function driveDateFr(iso){ try{ return new Date(iso).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}); }catch(e){ return String(iso); } }
+function updateDriveStatus(){
+  const n = document.getElementById('drive-status');
+  if(!n) return;
+  const m = loadDriveMeta();
+  n.textContent = m.syncedAt ? `Dernière synchro de cet appareil : ${driveDateFr(m.syncedAt)}` : "Cet appareil n'a pas encore été synchronisé avec Drive.";
+}
+function setDriveBusy(b){ ['drive-push-btn','drive-pull-btn'].forEach(id=>{ const n = document.getElementById(id); if(n) n.disabled = b; }); }
+function driveGetToken(){
+  // À appeler en premier dans le gestionnaire du clic (le navigateur bloque les fenêtres Google sinon).
+  if(driveToken && Date.now() < driveTokenExp - 60000) return Promise.resolve(driveToken);
+  return new Promise((resolve, reject)=>{
+    if(!(window.google && google.accounts && google.accounts.oauth2)) return reject(new Error('service Google indisponible (connexion Internet ?)'));
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: DRIVE_CLIENT_ID, scope: DRIVE_SCOPE,
+      callback: r=>{
+        if(r.error) return reject(new Error(r.error));
+        driveToken = r.access_token; driveTokenExp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
+        resolve(driveToken);
+      },
+      error_callback: e=> reject(new Error((e && e.type) || 'connexion annulée'))
+    });
+    client.requestAccessToken({prompt:''});
+  });
+}
+async function driveApi(url, opts){
+  const o = opts || {};
+  const r = await fetch(url, {...o, headers:{...(o.headers || {}), Authorization:'Bearer ' + driveToken}});
+  if(r.status === 401){ driveToken = null; throw new Error('session Google expirée, réessaie'); }
+  if(!r.ok) throw new Error('Drive HTTP ' + r.status);
+  return r;
+}
+async function driveFindFile(){
+  const meta = loadDriveMeta();
+  if(meta.fileId){
+    try{
+      const f = await (await driveApi(`https://www.googleapis.com/drive/v3/files/${meta.fileId}?fields=id,modifiedTime,trashed`)).json();
+      if(!f.trashed) return f;
+    }catch(e){ if(!/404/.test(e.message)) throw e; }
+  }
+  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+  const j = await (await driveApi(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime%20desc&fields=files(id,modifiedTime)`)).json();
+  return (j.files && j.files[0]) || null;
+}
+async function drivePush(){
+  if(driveBusy) return;
+  driveBusy = true; setDriveBusy(true);
+  try{
+    await driveGetToken();
+    const file = await driveFindFile();
+    const meta = loadDriveMeta();
+    if(file && (!meta.remoteModified || file.modifiedTime > meta.remoteModified)){
+      const msg = meta.remoteModified
+        ? `Le fichier Drive a été modifié le ${driveDateFr(file.modifiedTime)}, après la dernière synchro de cet appareil (${driveDateFr(meta.syncedAt)}). Un autre appareil a peut-être envoyé des séances plus récentes. Les écraser avec les données de cet appareil ?`
+        : `Un fichier de synchro existe déjà sur Drive (modifié le ${driveDateFr(file.modifiedTime)}) et cet appareil ne l'a jamais synchronisé. L'écraser avec les données de cet appareil ?`;
+      if(!confirm(msg)) return;
+    }
+    const body = JSON.stringify(await buildGlobalBackupPayload(), null, 2);
+    let res;
+    if(file){
+      res = await driveApi(`https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media&fields=id,modifiedTime`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body});
+    } else {
+      const b = '-----fonte' + Date.now();
+      const multipart = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({name:DRIVE_FILE_NAME, mimeType:'application/json'})}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+      res = await driveApi('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {method:'POST', headers:{'Content-Type':'multipart/related; boundary=' + b}, body: multipart});
+    }
+    const f = await res.json();
+    saveDriveMeta({fileId:f.id, remoteModified:f.modifiedTime, syncedAt:new Date().toISOString()});
+    showToast('Données envoyées vers Drive', 'good');
+  }catch(e){
+    showToast('Envoi Drive impossible : ' + e.message, 'bad');
+  }finally{
+    driveBusy = false; setDriveBusy(false); updateDriveStatus();
+  }
+}
+async function drivePull(){
+  if(driveBusy) return;
+  driveBusy = true; setDriveBusy(true);
+  try{
+    await driveGetToken();
+    const file = await driveFindFile();
+    if(!file){ showToast("Aucun fichier de synchro sur Drive : envoie d'abord depuis l'autre appareil", 'warn'); return; }
+    const text = await (await driveApi(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`)).text();
+    let data;
+    try{ data = parseBackupFileContent(text); }catch(e){ throw new Error('fichier Drive illisible'); }
+    if(!data || !data.exercises || !Array.isArray(data.users)) throw new Error("le fichier Drive n'est pas une sauvegarde complète FONTE");
+    const count = list => list.reduce((s,u)=> s + (Array.isArray(u.sessions) ? u.sessions.length : 0), 0);
+    const local = [];
+    for(const u of loadUsers()) local.push({ sessions: (u.id === currentUserId()) ? state.sessions : await readSessionsForUser(u.id) });
+    const nDrive = count(data.users), nLocal = count(local);
+    let warn = '';
+    if(nLocal > nDrive) warn += ' ATTENTION : cet appareil contient plus de séances que Drive.';
+    if(!loadDriveMeta().syncedAt) warn += " Cet appareil n'a jamais été synchronisé : envoie ou sauvegarde avant si tu as des séances récentes ici.";
+    if(!confirm(`Drive : ${nDrive} séances (fichier du ${driveDateFr(file.modifiedTime)}). Cet appareil : ${nLocal} séances. Remplacer les données de cet appareil par celles de Drive ?${warn}`)) return;
+    await applyGlobalBackupData(data);
+    saveDriveMeta({fileId:file.id, remoteModified:file.modifiedTime, syncedAt:new Date().toISOString()});
+    showToast('Données récupérées depuis Drive', 'good');
+  }catch(e){
+    showToast('Récupération Drive impossible : ' + e.message, 'bad');
+  }finally{
+    driveBusy = false; setDriveBusy(false); updateDriveStatus();
+  }
+}
+
 /* ============================= PROFILS (Données › Profils) ============================= */
 function renderProfilesView(){
   const el = document.getElementById('view-profiles');
@@ -5660,15 +5788,18 @@ async function readSessionsForUser(userId){
 async function writeSessionsForUser(userId, sessions){
   await writeStored('sessions', sessions, userId);
 }
-async function exportGlobalBackup(){
-  // Sauvegarde complète de l'application : exercices partagés + séances des DEUX profils + leurs noms.
-  const users = loadUsers();
+async function buildGlobalBackupPayload(){
+  // Sauvegarde complète de l'application : exercices partagés + séances de tous les profils + leurs noms.
   const usersData = [];
-  for(const u of users){
+  for(const u of loadUsers()){
     const sessions = (u.id === currentUserId()) ? state.sessions : await readSessionsForUser(u.id);
     usersData.push({ id:u.id, name:u.name, color:u.color, sessions });
   }
-  const payload = { version:3, type:'fonte-global-backup', exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, users: usersData };
+  return { version:3, type:'fonte-global-backup', exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, users: usersData };
+}
+async function exportGlobalBackup(){
+  const payload = await buildGlobalBackupPayload();
+  const users = payload.users;
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -5678,13 +5809,7 @@ async function exportGlobalBackup(){
   showToast(`Sauvegarde complète (${users.length} profil${users.length>1?'s':''}) téléchargée`, 'good');
 }
 async function exportGlobalBackupCompressed(){
-  const users = loadUsers();
-  const usersData = [];
-  for(const u of users){
-    const sessions = (u.id === currentUserId()) ? state.sessions : await readSessionsForUser(u.id);
-    usersData.push({ id:u.id, name:u.name, color:u.color, sessions });
-  }
-  const payload = { version:3, type:'fonte-global-backup', exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, users: usersData };
+  const payload = await buildGlobalBackupPayload();
   const raw = JSON.stringify(payload);
   let content, ext;
   if(window.LZString){
@@ -5717,47 +5842,51 @@ function handleRestoreGlobalFile(e){
     const totalCurrentSessions = state.sessions.length; // au minimum, on affiche le profil actif ; le vrai total tous profils est calculé ci-dessous si besoin
     if(!confirm(`Restaurer cette sauvegarde COMPLÈTE remplacera la base d'exercices partagée ET les séances des ${incomingUsers.length} profil(s) du fichier (${totalIncomingSessions} séances au total). Cela écrase les données actuelles des deux profils sur cet appareil. Continuer ?`)) return;
 
-    // Exercices (partagés)
-    data.exercises.forEach(ex=>{ ex.variants = Array.isArray(ex.variants) ? ex.variants : []; });
-    state.exercises = data.exercises;
-    await saveExercises();
-
-    // Types de poulie : fusionnés avec les types par défaut pour ne jamais perdre 'normal'/'nouvelles'/'matrix'
-    // même si le fichier de sauvegarde est ancien (sans pulleyTypes) ou incomplet.
-    if(data.pulleyTypes && typeof data.pulleyTypes === 'object'){
-      PULLEYS = {...DEFAULT_PULLEYS, ...data.pulleyTypes};
-      await savePulleyTypes();
-    }
-
-    // Profils : on garde les identifiants du fichier tels quels pour rester cohérent avec ses données.
-    // La couleur est reprise si présente dans le fichier (sauvegardes récentes) ; sinon (anciennes
-    // sauvegardes sans couleur), on en attribue une automatiquement pour ne pas se retrouver sans accent.
-    const newUsers = [];
-    incomingUsers.forEach(u=>{
-      newUsers.push({ id: u.id, name: u.name || 'Utilisateur', color: u.color || nextSuggestedUserColor(newUsers) });
-    });
-    saveUsers(newUsers.length ? newUsers : DEFAULT_USERS.slice());
-
-    // Séances de chaque profil, écrites directement dans le namespace correspondant.
-    for(const u of incomingUsers){
-      const sessions = Array.isArray(u.sessions) ? u.sessions : [];
-      await writeSessionsForUser(u.id, sessions);
-    }
-
-    // Recharge l'état courant : si le profil actif n'existe plus dans la sauvegarde, on bascule sur le premier.
-    const stillExists = newUsers.some(u=>u.id === currentUserId());
-    state.currentUserId = stillExists ? currentUserId() : (newUsers[0] ? newUsers[0].id : DEFAULT_USER_ID);
-    setActiveUserId(state.currentUserId);
-    state.sessions = await readStored('sessions') || [];
-    migratePulleyData();
-
+    await applyGlobalBackupData(data);
     showToast('Sauvegarde complète restaurée', 'good');
-    applyUserTheme();
-    renderUserSwitcher();
-    renderNav();
-    renderBackupView();
   };
   reader.readAsText(f);
+}
+async function applyGlobalBackupData(data){
+  const incomingUsers = data.users;
+  // Exercices (partagés)
+  data.exercises.forEach(ex=>{ ex.variants = Array.isArray(ex.variants) ? ex.variants : []; });
+  state.exercises = data.exercises;
+  await saveExercises();
+
+  // Types de poulie : fusionnés avec les types par défaut pour ne jamais perdre 'normal'/'nouvelles'/'matrix'
+  // même si le fichier de sauvegarde est ancien (sans pulleyTypes) ou incomplet.
+  if(data.pulleyTypes && typeof data.pulleyTypes === 'object'){
+    PULLEYS = {...DEFAULT_PULLEYS, ...data.pulleyTypes};
+    await savePulleyTypes();
+  }
+
+  // Profils : on garde les identifiants du fichier tels quels pour rester cohérent avec ses données.
+  // La couleur est reprise si présente dans le fichier (sauvegardes récentes) ; sinon (anciennes
+  // sauvegardes sans couleur), on en attribue une automatiquement pour ne pas se retrouver sans accent.
+  const newUsers = [];
+  incomingUsers.forEach(u=>{
+    newUsers.push({ id: u.id, name: u.name || 'Utilisateur', color: u.color || nextSuggestedUserColor(newUsers) });
+  });
+  saveUsers(newUsers.length ? newUsers : DEFAULT_USERS.slice());
+
+  // Séances de chaque profil, écrites directement dans le namespace correspondant.
+  for(const u of incomingUsers){
+    const sessions = Array.isArray(u.sessions) ? u.sessions : [];
+    await writeSessionsForUser(u.id, sessions);
+  }
+
+  // Recharge l'état courant : si le profil actif n'existe plus dans la sauvegarde, on bascule sur le premier.
+  const stillExists = newUsers.some(u=>u.id === currentUserId());
+  state.currentUserId = stillExists ? currentUserId() : (newUsers[0] ? newUsers[0].id : DEFAULT_USER_ID);
+  setActiveUserId(state.currentUserId);
+  state.sessions = await readStored('sessions') || [];
+  migratePulleyData();
+
+  applyUserTheme();
+  renderUserSwitcher();
+  renderNav();
+  renderBackupView();
 }
 function exportBackup(){
   const payload = { version:2, exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, sessions: state.sessions };
