@@ -275,10 +275,26 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .filter-panel.open{display:flex;}
 .filter-panel .seg-group{flex-wrap:wrap;}
 .filter-chip-wrap:last-child .filter-panel{left:auto;right:0;}
-@media(max-width:600px){.filter-chip-wrap{position:static;} .filter-panel,.filter-chip-wrap:last-child .filter-panel{left:0;right:0;min-width:0;max-width:none;box-sizing:border-box;}}
-.period-nav{display:none;align-items:center;justify-content:center;gap:6px;}
-.period-nav-label{flex:1;text-align:center;font-size:12.5px;color:var(--text);min-width:120px;}
-.period-custom{display:none;align-items:center;gap:6px;}
+@media(max-width:600px){.filter-chip-wrap{display:contents;} .filter-panel,.filter-chip-wrap:last-child .filter-panel{position:static;order:10;flex:0 0 100%;min-width:0;max-width:none;box-sizing:border-box;box-shadow:none;}}
+.pl-mode{display:none;}
+.filter-panel:has(.period-nav){width:330px;}
+.filter-panel:has(.period-nav) .seg-group{justify-content:center;}
+@media(max-width:600px){.filter-panel:has(.period-nav){width:auto;}}
+/* Bureau : les options s'ouvrent en ligne, à droite de leur puce (pas de fenêtre flottante) */
+@media(min-width:601px){
+  .filter-chip-wrap{display:contents;}
+  .filter-panel,.filter-chip-wrap:last-child .filter-panel{position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0;max-width:none;box-shadow:none;padding:4px 8px;}
+  .filter-panel:has(.period-nav){width:auto;}
+  .period-nav{justify-content:flex-start;}
+  .period-nav-label{flex:0 0 205px;}
+  /* Panneau ouvert : la puce n'affiche que le nom du mode (largeur constante), le détail est dans le panneau */
+  .filter-chip[aria-expanded="true"] .pl-full{display:none;}
+  .filter-chip[aria-expanded="true"] .pl-mode{display:inline;}
+}
+.period-nav{display:none;align-items:center;justify-content:space-between;gap:6px;}
+.period-nav-label{flex:1;min-width:0;text-align:center;font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.period-custom{display:none;align-items:center;justify-content:center;gap:6px;}
+.period-custom input[type=date]{flex:1 1 0;min-width:0;}
 .dash-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
 .seg-group{display:flex;gap:6px;background:var(--surface);border:1px solid var(--border);padding:4px;border-radius:9px;}
 .seg-btn{background:transparent;border:none;color:var(--muted);padding:6px 13px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;}
@@ -1920,7 +1936,7 @@ function periodPanelHtml(idp){
     </div>
     <div class="period-nav" id="${idp}-period-nav">
       <button type="button" class="btn ghost icon-btn-square" data-pnav="-1" aria-label="Période précédente">${iconSvg('M15 18l-6-6 6-6')}</button>
-      <span class="period-nav-label mono" id="${idp}-period-nav-label"></span>
+      <span class="period-nav-label" id="${idp}-period-nav-label"></span>
       <button type="button" class="btn ghost icon-btn-square" data-pnav="1" aria-label="Période suivante">${iconSvg('M9 18l6-6-6-6')}</button>
     </div>
     <div class="period-custom" id="${idp}-period-custom">
@@ -1937,7 +1953,7 @@ function syncPeriodPanel(idp, ctx){
   if(nav) nav.style.display = (p==='week'||p==='month') ? 'flex' : 'none';
   if(cust) cust.style.display = p==='custom' ? 'flex' : 'none';
   const lab = document.getElementById(idp+'-period-nav-label'); if(lab) lab.textContent = periodLabel(ctx);
-  const chip = document.getElementById(idp+'-period-label'); if(chip) chip.textContent = periodLabel(ctx);
+  const chip = document.getElementById(idp+'-period-label'); if(chip){ const modeName = {week:'Semaine', month:'Mois', custom:'Personnalisé'}[p] || 'Tout'; chip.innerHTML = `<span class="pl-full">${escapeHtml(periodLabel(ctx))}</span><span class="pl-mode">${modeName}</span>`; }
   if(p==='custom'){
     const f = document.getElementById(idp+'-period-from'), t = document.getElementById(idp+'-period-to');
     if(f) f.value = state[k.from] || '';
