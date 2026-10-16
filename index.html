@@ -2,22 +2,14 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.10
-terminé: v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur), v5.10 (synchro Google Drive manuelle : boutons Envoyer/Récupérer dans Données › Sauvegarde)
+version: 5.11
+terminé: v5.11 (filtres de période : Tout · Semaine · Mois · Personnalisé, composant commun), v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur), v5.10 (synchro Google Drive manuelle : boutons Envoyer/Récupérer dans Données › Sauvegarde)
 en cours: (rien)
 prochaine: (rien)
 notes (ne garder que ce qui sert aux futures modifications) :
-- Fichier unique, sans build. Plafond de taille : ~6 650 lignes (relevé pour la synchro Drive). Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
+- Fichier unique, sans build. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
 - Couleurs : jamais en dur ; COLORS + USER_COLOR_POOL, variables CSS (--accent, --surface…). Ne pas renommer ids HTML, fonctions ni clés de stockage ; stockage via readStored/writeStored.
-- Navigation : NAV_SECTIONS (Accueil, Séances, Statistiques, Exercices, Données) ; switchView(id). Données = Profils · Import · Sauvegarde (backupScope : all par défaut, profile, exercises).
-- Modales : openModal(html, preserveScroll, extraClass) ; classe 'session-modal' = éditeur de séance (plein écran ≤ 600 px, classe .is-session sur #modal-bg).
-- Sélecteur d'exercice : openExercisePickerGeneric({current,onPick,returnFocusEl,excludeId}) (hors modale, .ex-sheet-bg z-index 600) ; openExercisePicker(i) = wrapper de l'éditeur ; bindExercisePickerButton(select) remplace un <select> d'exercice par un bouton (select masqué = source de vérité, événement 'change') : Stats, Comparateur, #ex-merge-target. Mobile : feuille plein écran, padding-bas de la liste = hauteur estimée du clavier (visualViewport).
-- Menus variante/poulie : variantMenu(ex, sessions, sel) / pulleyMenu(ex, sessions, variant, sel) renvoient {html, value}. Variante '__auto__' = à résoudre (défaut si utilisée, sinon « Toutes variantes ») ; '__std__' = variante vide « Standard » ; filtre via variantMatches(). Utilisés par Stats et Comparateur (state.selectedVariant/compareVariant).
-- Historique : exerciseHistoryTableHtml(rows, readOnly) partagé (modale + comparateur) ; computeExerciseFullHistory(exId, variant, pulley, sessions) ; comparateur = renderCompareHistory (blocs <details> A puis B, lecture seule).
 - Éditeur : le champ caché [data-entry-exercise] est la source de vérité de l'exercice ; la liste de variante n'existe que si l'exercice a des variantes ; persistSessionEditor relit le DOM. Séance validée = lecture seule.
-- Accueil : « Reprendre » → openSessionEditor ; « Résumé » et séances récentes → openSessionModal. Séance coop : N profils (setsByUser, coopParticipants), pas de bouton Valider en coop.
-- Synchro Drive : bloc « SYNCHRO GOOGLE DRIVE » (DRIVE_CLIENT_ID, portée drive.file, fichier fonte-sync.json en JSON lisible) ; drivePush/drivePull manuels, garde-fous (fichier Drive modifié depuis la dernière synchro, appareil jamais synchronisé, plus de séances ici que sur Drive). Métadonnées de synchro en localStorage (DRIVE_META_KEY). buildGlobalBackupPayload/applyGlobalBackupData partagés avec la sauvegarde fichier. Page servie en https (GitHub Pages), pas en file://.
-- Décisions : carte « Répartition par type de séance » conservée ; filtre Statut « à classer » conservé (alerte Accueil, import, puce « À classer ✕ »). Points connus : aucun.
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -284,6 +276,9 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .filter-panel .seg-group{flex-wrap:wrap;}
 .filter-chip-wrap:last-child .filter-panel{left:auto;right:0;}
 @media(max-width:600px){.filter-chip-wrap{position:static;} .filter-panel,.filter-chip-wrap:last-child .filter-panel{left:0;right:0;min-width:0;max-width:none;box-sizing:border-box;}}
+.period-nav{display:none;align-items:center;justify-content:center;gap:6px;}
+.period-nav-label{flex:1;text-align:center;font-size:12.5px;color:var(--text);min-width:120px;}
+.period-custom{display:none;align-items:center;gap:6px;}
 .dash-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
 .seg-group{display:flex;gap:6px;background:var(--surface);border:1px solid var(--border);padding:4px;border-radius:9px;}
 .seg-btn{background:transparent;border:none;color:var(--muted);padding:6px 13px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;}
@@ -410,9 +405,9 @@ th[data-sort]:hover{color:var(--text);}
   .dash-toolbar > div{width:100%;flex-wrap:wrap;}
   .seg-group{width:100%;flex-wrap:wrap;justify-content:center;}
   .seg-btn{flex:1 1 auto;padding:7px 6px;font-size:11.5px;}
-  #dash-week-nav{width:100%;justify-content:center;}
-  #dash-custom-range{width:100%;flex-wrap:wrap;justify-content:center;}
-  #dash-custom-range input[type=date]{flex:1 1 130px;min-width:0;}
+  .period-nav{width:100%;justify-content:center;}
+  .period-custom{width:100%;flex-wrap:wrap;justify-content:center;}
+  .period-custom input[type=date]{flex:1 1 130px;min-width:0;}
 
   /* tables become stacked cards on mobile instead of forcing a sideways swipe */
   table.tbl-cards{display:block;width:100%;}
@@ -997,7 +992,8 @@ let state = {
   currentView: 'home',
   calMonth: new Date().getMonth(),
   calYear: new Date().getFullYear(),
-  dashPeriod: 0, // 7 | 30 | 90 | 0 (tout) | 'week' | 'custom'
+  dashPeriod: 0, // 0 (tout) | 'week' | 'month' | 'custom'
+  dashMonthAnchor: null, // ISO date inside the currently viewed month (mode 'month')
   dashWeekAnchor: null, // ISO date inside the currently viewed week (mode 'week')
   dashCustomFrom: null, // ISO date, mode 'custom' (null = pas de borne basse)
   dashCustomTo: null,   // ISO date, mode 'custom' (null = jusqu'à aujourd'hui)
@@ -1010,7 +1006,8 @@ let state = {
   statsTab: 'summary', // 'summary' | 'progress' | 'muscles' | 'heart' — onglet affiché dans Statistiques
   muscleChartMode: 'muscle', // 'muscle' | 'sessionType' — bascule le widget "Répartition du volume"
   dashTypeFilter: '__all__', // '__all__' | 'push' | 'pull' | 'upper' | 'legs' | 'other' — filtre par type de séance du tableau de bord
-  comparePeriod: 0, // 7 | 30 | 90 | 0 (tout) — période analysée dans la vue "Comparer les profils"
+  comparePeriod: 0, // 0 (tout) | 'week' | 'month' | 'custom' — période analysée dans la vue "Comparer les profils"
+  compareWeekAnchor: null, compareMonthAnchor: null, compareCustomFrom: null, compareCustomTo: null,
   compareTypeFilter: '__all__', // filtre par type de séance dans la vue "Comparer les profils"
   compareExerciseId: null, // exercice sélectionné pour le graphique "Progression par exercice" de la vue comparaison
   compareVariant: '__auto__',
@@ -1868,35 +1865,103 @@ function pulleyMenu(ex, sessions, variant, sel){
   if(!PULLEYS[cur]){ cur = 'normal'; if(!n.normal){ const u = ids.find(id=>n[id]); if(u) cur = u; } }
   return { html: ids.map(id=>`<option value="${escapeHtml(id)}">${n[id]?'●':'○'} ${escapeHtml(PULLEYS[id])} · ${n[id] ? n[id]+(n[id]>1?' séances':' séance') : 'jamais'}</option>`).join(''), value:cur };
 }
-/* All dashboard stats/charts are driven by a {from, to} ISO-date range (either bound can be null/unbounded),
-   computed here from state.dashPeriod which can be a preset day-count (7/30/90/0), 'week' (nav by week), or
-   'custom' (two free date pickers) — this is what lets the person pick a precise period instead of only 7/30/90j. */
-function getActiveRange(){
-  const p = state.dashPeriod;
+/* Toutes les stats/graphiques sont pilotés par une plage {from, to} (bornes ISO, chacune pouvant être null).
+   Périodes possibles : 0 (tout), 'week' / 'month' (navigation précédent/suivant) ou 'custom' (deux dates).
+   Deux jeux d'états : 'dash' (Accueil + Statistiques) et 'cmp' (vue Comparer), cf. PERIOD_KEYS. */
+const PERIOD_KEYS = {
+  dash:{period:'dashPeriod', week:'dashWeekAnchor', month:'dashMonthAnchor', from:'dashCustomFrom', to:'dashCustomTo'},
+  cmp:{period:'comparePeriod', week:'compareWeekAnchor', month:'compareMonthAnchor', from:'compareCustomFrom', to:'compareCustomTo'}
+};
+function monthStartOf(dateIso){ const [y,m] = dateIso.split('-').map(Number); return new Date(y, m-1, 1); }
+function periodRange(ctx){
+  const k = PERIOD_KEYS[ctx], p = state[k.period];
   if(p==='week'){
-    const monday = mondayOf(state.dashWeekAnchor || todayISO());
+    const monday = mondayOf(state[k.week] || todayISO());
     const sunday = new Date(monday); sunday.setDate(sunday.getDate()+6);
     return { from: isoFromDate(monday), to: isoFromDate(sunday) };
   }
-  if(p==='custom'){
-    return { from: state.dashCustomFrom || null, to: state.dashCustomTo || todayISO() };
+  if(p==='month'){
+    const first = monthStartOf(state[k.month] || todayISO());
+    const last = new Date(first.getFullYear(), first.getMonth()+1, 0);
+    return { from: isoFromDate(first), to: isoFromDate(last) };
   }
-  const days = Number(p);
-  if(!days || days<=0) return { from: null, to: null };
-  const now = new Date(); now.setHours(0,0,0,0);
-  const cutoff = new Date(now); cutoff.setDate(cutoff.getDate()-(days-1));
-  return { from: isoFromDate(cutoff), to: null };
+  if(p==='custom') return { from: state[k.from] || null, to: state[k.to] || todayISO() };
+  return { from: null, to: null };
 }
-function formatRangeLabel(range){
-  const p = state.dashPeriod;
+function periodLabel(ctx){
+  const k = PERIOD_KEYS[ctx], p = state[k.period], range = periodRange(ctx);
   if(p==='week') return `Semaine du ${fmtDateShort(range.from)} au ${fmtDateShort(range.to)}`;
+  if(p==='month'){ const d = monthStartOf(range.from); return `${MONTHS_FR[d.getMonth()]} ${d.getFullYear()}`; }
   if(p==='custom'){
     if(range.from && range.to) return `Du ${fmtDateShort(range.from)} au ${fmtDateShort(range.to)}`;
     if(range.to) return `Jusqu'au ${fmtDateShort(range.to)}`;
     return 'Choisis une période';
   }
-  const PERIOD_LABELS = {7:'7 derniers jours', 30:'30 derniers jours', 90:'90 derniers jours', 0:'toute la période'};
-  return PERIOD_LABELS[Number(p)] ?? '';
+  return 'Tout';
+}
+function getActiveRange(){ return periodRange('dash'); }
+function formatRangeLabel(){ return periodLabel('dash'); }
+/* Décale la semaine ou le mois affiché de dir (-1 / +1). */
+function shiftPeriod(ctx, dir){
+  const k = PERIOD_KEYS[ctx], p = state[k.period];
+  if(p==='week'){
+    const monday = mondayOf(state[k.week] || todayISO()); monday.setDate(monday.getDate()+7*dir);
+    state[k.week] = isoFromDate(monday);
+  } else if(p==='month'){
+    const first = monthStartOf(state[k.month] || todayISO());
+    state[k.month] = isoFromDate(new Date(first.getFullYear(), first.getMonth()+dir, 1));
+  }
+}
+/* Contenu du panneau « Période » : Tout · Semaine · Mois · Personnalisé, flèches (semaine/mois) et deux dates (personnalisé).
+   idp = préfixe des ids du DOM (home / dash / cmp) ; ctx = jeu d'états ('dash' ou 'cmp'). */
+function periodPanelHtml(idp){
+  return `<div class="seg-group" id="${idp}-period-group">
+      ${[['0','Tout'],['week','Semaine'],['month','Mois'],['custom','Personnalisé']].map(([v,l])=>`<button type="button" class="seg-btn" data-pp="${v}">${l}</button>`).join('')}
+    </div>
+    <div class="period-nav" id="${idp}-period-nav">
+      <button type="button" class="btn ghost icon-btn-square" data-pnav="-1" aria-label="Période précédente">${iconSvg('M15 18l-6-6 6-6')}</button>
+      <span class="period-nav-label mono" id="${idp}-period-nav-label"></span>
+      <button type="button" class="btn ghost icon-btn-square" data-pnav="1" aria-label="Période suivante">${iconSvg('M9 18l6-6-6-6')}</button>
+    </div>
+    <div class="period-custom" id="${idp}-period-custom">
+      <input type="date" id="${idp}-period-from" style="padding:6px 9px;font-size:12.5px;" aria-label="Date de début">
+      <span style="color:var(--muted);font-size:12.5px;">→</span>
+      <input type="date" id="${idp}-period-to" style="padding:6px 9px;font-size:12.5px;" aria-label="Date de fin">
+    </div>`;
+}
+/* Met à jour l'affichage du panneau (bouton actif, flèches, dates, libellé de la puce) selon l'état. */
+function syncPeriodPanel(idp, ctx){
+  const k = PERIOD_KEYS[ctx], p = state[k.period];
+  document.querySelectorAll(`#${idp}-period-group .seg-btn`).forEach(x=> x.classList.toggle('active', x.dataset.pp===String(p)));
+  const nav = document.getElementById(idp+'-period-nav'), cust = document.getElementById(idp+'-period-custom');
+  if(nav) nav.style.display = (p==='week'||p==='month') ? 'flex' : 'none';
+  if(cust) cust.style.display = p==='custom' ? 'flex' : 'none';
+  const lab = document.getElementById(idp+'-period-nav-label'); if(lab) lab.textContent = periodLabel(ctx);
+  const chip = document.getElementById(idp+'-period-label'); if(chip) chip.textContent = periodLabel(ctx);
+  if(p==='custom'){
+    const f = document.getElementById(idp+'-period-from'), t = document.getElementById(idp+'-period-to');
+    if(f) f.value = state[k.from] || '';
+    if(t) t.value = state[k.to] || '';
+  }
+}
+/* Branche le panneau ; onChange() est appelé après chaque modification de la période. */
+function bindPeriodPanel(idp, ctx, onChange){
+  const k = PERIOD_KEYS[ctx];
+  document.querySelectorAll(`#${idp}-period-group [data-pp]`).forEach(b=> b.addEventListener('click', ()=>{
+    const v = b.dataset.pp;
+    state[k.period] = v==='0' ? 0 : v;
+    if(v==='week' && !state[k.week]) state[k.week] = todayISO();
+    if(v==='month' && !state[k.month]) state[k.month] = todayISO();
+    if(v==='custom' && !state[k.to]) state[k.to] = todayISO();
+    syncPeriodPanel(idp, ctx); onChange();
+  }));
+  document.querySelectorAll(`#${idp}-period-nav [data-pnav]`).forEach(b=> b.addEventListener('click', ()=>{
+    shiftPeriod(ctx, Number(b.dataset.pnav)); syncPeriodPanel(idp, ctx); onChange();
+  }));
+  const f = document.getElementById(idp+'-period-from'), t = document.getElementById(idp+'-period-to');
+  if(f) f.addEventListener('change', ()=>{ state[k.from] = f.value || null; syncPeriodPanel(idp, ctx); onChange(); });
+  if(t) t.addEventListener('change', ()=>{ state[k.to] = t.value || null; syncPeriodPanel(idp, ctx); onChange(); });
+  syncPeriodPanel(idp, ctx);
 }
 const DASH_TYPE_LABELS = { __all__:'Toutes les séances', push:'Push', pull:'Pull', upper:'Upper', legs:'Legs', other:'Autres' };
 function formatTypeFilterLabel(){
@@ -2458,11 +2523,11 @@ function bindFilterChips(root){
       panel.classList.toggle('open', open);
       chip.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
-    // Un choix simple referme le panneau ; Semaine et Personnalisé le gardent ouvert (flèches / dates).
+    // Un choix simple referme le panneau ; Semaine, Mois et Personnalisé le gardent ouvert (flèches / dates).
     panel.addEventListener('click', e=>{
       e.stopPropagation();
       const b = e.target.closest('.seg-btn');
-      if(b && b.dataset.dp!=='week' && b.dataset.dp!=='custom') closeFilterPanels(null);
+      if(b && !['week','month','custom'].includes(b.dataset.pp)) closeFilterPanels(null);
     });
   });
 }
@@ -2481,7 +2546,7 @@ function currentStreakDays(){
   return streak;
 }
 /* ============================= ACCUEIL ============================= */
-function renderHomeView(){
+function renderHomeView(keepPeriodOpen){
   const el = document.getElementById('view-home');
   if(!el) return;
   const activeUser = loadUsers().find(u=>u.id===currentUserId());
@@ -2507,10 +2572,7 @@ function renderHomeView(){
       <button type="button" class="btn ghost home-resume-sum" data-resume-summary="${pending.id}">Résumé</button>
     </div>` : ''}
     <div class="filter-bar" style="margin-top:14px;">
-      ${filterChipHtml('home-period-panel','Période','home-period-label',formatRangeLabel(range),`
-        <div class="seg-group" id="home-period-group">
-          ${[[7,'7j'],[30,'30j'],[90,'90j'],[0,'Tout']].map(([v,l])=>`<button class="seg-btn${String(state.dashPeriod)===String(v)?' active':''}" data-hp="${v}">${l}</button>`).join('')}
-        </div>`)}
+      ${filterChipHtml('home-period-panel','Période','home-period-label',periodLabel('dash'),periodPanelHtml('home'))}
     </div>
     <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
       ${item('Séances', kpi.count, 'sur cette période')}
@@ -2547,7 +2609,12 @@ function renderHomeView(){
   }
   const resumeSum = el.querySelector('[data-resume-summary]');
   if(resumeSum) resumeSum.addEventListener('click', e=>{ e.stopPropagation(); openSessionModal(resumeSum.dataset.resumeSummary); });
-  el.querySelectorAll('[data-hp]').forEach(b=> b.addEventListener('click', ()=>{ state.dashPeriod = Number(b.dataset.hp); renderHomeView(); }));
+  bindPeriodPanel('home', 'dash', ()=> renderHomeView(true));
+  // Après un rafraîchissement dû aux flèches / dates, le panneau reste ouvert.
+  if(keepPeriodOpen){
+    const pn = document.getElementById('home-period-panel'), ch = el.querySelector('[data-filter-panel="home-period-panel"]');
+    if(pn) pn.classList.add('open'); if(ch) ch.setAttribute('aria-expanded','true');
+  }
   const cls = document.getElementById('home-classify');
   if(cls) cls.addEventListener('click', ()=>{ exFilterUnclassified = true; switchView('exercises'); });
 }
@@ -2557,9 +2624,6 @@ function renderDashboard(){
   const totalSessions = state.sessions.length;
 
   const streak = currentStreakDays();
-  if(state.dashPeriod==='week' && !state.dashWeekAnchor) state.dashWeekAnchor = todayISO();
-  if(state.dashPeriod==='custom' && !state.dashCustomTo) state.dashCustomTo = todayISO();
-
   el.innerHTML = `
     <div class="page-head">
       <div>
@@ -2569,19 +2633,7 @@ function renderDashboard(){
     </div>
 
     <div class="filter-bar">
-      ${filterChipHtml('dash-period-panel','Période','dash-period-label','',`
-        <div class="seg-group" id="dash-period-group">
-          ${[[7,'7j'],[30,'30j'],[90,'90j'],[0,'Tout'],['week','Semaine'],['custom','Personnalisé']].map(([v,l])=>`<button class="seg-btn${String(state.dashPeriod)===String(v)?' active':''}" data-dp="${v}">${l}</button>`).join('')}
-        </div>
-        <div id="dash-week-nav" style="display:none;align-items:center;gap:6px;">
-          <button class="btn ghost icon-btn-square" id="dash-week-prev" aria-label="Semaine précédente">${iconSvg('M15 18l-6-6 6-6')}</button>
-          <button class="btn ghost icon-btn-square" id="dash-week-next" aria-label="Semaine suivante">${iconSvg('M9 18l6-6-6-6')}</button>
-        </div>
-        <div id="dash-custom-range" style="display:none;align-items:center;gap:6px;">
-          <input type="date" id="dash-custom-from" style="padding:6px 9px;font-size:12.5px;">
-          <span style="color:var(--muted);font-size:12.5px;">→</span>
-          <input type="date" id="dash-custom-to" style="padding:6px 9px;font-size:12.5px;">
-        </div>`)}
+      ${filterChipHtml('dash-period-panel','Période','dash-period-label','',periodPanelHtml('dash'))}
       ${filterChipHtml('dash-type-panel','Type','dash-type-label','',`
         <div class="seg-group" id="dash-type-group">
           ${[['__all__','Tout'],['push','Push'],['pull','Pull'],['upper','Upper'],['legs','Legs'],['other','Autres']].map(([v,l])=>`<button class="seg-btn${state.dashTypeFilter===v?' active':''}" data-dt="${v}">${l}</button>`).join('')}
@@ -2792,31 +2844,8 @@ function renderDashboard(){
   });
 
   bindFilterChips(el);
-  // period toolbar: day-count presets, week navigator, or a free custom date range
-  document.getElementById('dash-period-group').querySelectorAll('[data-dp]').forEach(b=>{
-    b.addEventListener('click', ()=>{
-      const v = b.dataset.dp;
-      state.dashPeriod = (v==='week'||v==='custom') ? v : Number(v);
-      if(state.dashPeriod==='week' && !state.dashWeekAnchor) state.dashWeekAnchor = todayISO();
-      if(state.dashPeriod==='custom' && !state.dashCustomTo) state.dashCustomTo = todayISO();
-      document.querySelectorAll('#dash-period-group .seg-btn').forEach(x=>x.classList.toggle('active', String(x.dataset.dp)===String(state.dashPeriod)));
-      updatePeriodControlsVisibility();
-      renderPeriodWidgets();
-    });
-  });
-  document.getElementById('dash-week-prev').addEventListener('click', ()=>{
-    const monday = mondayOf(state.dashWeekAnchor || todayISO()); monday.setDate(monday.getDate()-7);
-    state.dashWeekAnchor = isoFromDate(monday);
-    renderPeriodWidgets();
-  });
-  document.getElementById('dash-week-next').addEventListener('click', ()=>{
-    const monday = mondayOf(state.dashWeekAnchor || todayISO()); monday.setDate(monday.getDate()+7);
-    state.dashWeekAnchor = isoFromDate(monday);
-    renderPeriodWidgets();
-  });
-  document.getElementById('dash-custom-from').addEventListener('change', e=>{ state.dashCustomFrom = e.target.value || null; renderPeriodWidgets(); });
-  document.getElementById('dash-custom-to').addEventListener('change', e=>{ state.dashCustomTo = e.target.value || null; renderPeriodWidgets(); });
-  updatePeriodControlsVisibility();
+  // période : Tout / Semaine / Mois / Personnalisé (+ navigation)
+  bindPeriodPanel('dash', 'dash', renderPeriodWidgets);
 
   // filtre par type de séance (Tout / Push / Pull / Legs / Autres) : s'applique à tous les widgets du
   // tableau de bord au même titre que la période, y compris le widget "Exercices en plateau" qui, lui,
@@ -2850,24 +2879,9 @@ function renderPlateauWidget(){
     tr.addEventListener('click', ()=> focusExerciseProgression(tr.dataset.plateauExercise, tr.dataset.plateauVariant, tr.dataset.plateauPulley));
   });
 }
-/* Shows the week-navigator arrows in 'week' mode, or the two date pickers in 'custom' mode; hides both otherwise. */
-function updatePeriodControlsVisibility(){
-  const weekNav = document.getElementById('dash-week-nav');
-  const customRange = document.getElementById('dash-custom-range');
-  if(weekNav) weekNav.style.display = state.dashPeriod==='week' ? 'flex' : 'none';
-  if(customRange){
-    customRange.style.display = state.dashPeriod==='custom' ? 'flex' : 'none';
-    if(state.dashPeriod==='custom'){
-      const fromEl = document.getElementById('dash-custom-from'), toEl = document.getElementById('dash-custom-to');
-      if(fromEl) fromEl.value = state.dashCustomFrom || '';
-      if(toEl) toEl.value = state.dashCustomTo || '';
-    }
-  }
-}
 function renderPeriodWidgets(){
   const range = getActiveRange();
-  const label = document.getElementById('dash-period-label');
-  if(label) label.textContent = formatRangeLabel(range);
+  syncPeriodPanel('dash', 'dash');
   const typeLabel = document.getElementById('dash-type-label');
   if(typeLabel) typeLabel.textContent = formatTypeFilterLabel();
   const sub = 'sur cette période';
@@ -6007,17 +6021,10 @@ async function resetUserData(userId){
    chaque ligne comparée. Réutilise volontairement les mêmes fonctions de calcul pures que le tableau
    de bord (computeKPIs, getMuscleVolumeDistribution, etc.) en basculant temporairement state.sessions
    / state.dashTypeFilter sur le profil et le filtre voulus, puis en restaurant l'état courant. */
-const COMPARE_PERIOD_LABELS = {7:'7 derniers jours', 30:'30 derniers jours', 90:'90 derniers jours', 0:'toute la période'};
 // Couleurs fixes par colonne (A/B) réutilisées à la fois pour la mise en évidence des écarts et pour
 // distinguer les deux utilisateurs sur les graphiques en barre partagés.
 const COMPARE_COLORS = { a:USER_COLOR_POOL[0], b:USER_COLOR_POOL[1] };
-function compareActiveRange(){
-  const days = Number(state.comparePeriod);
-  if(!days || days<=0) return { from:null, to:null };
-  const now = new Date(); now.setHours(0,0,0,0);
-  const cutoff = new Date(now); cutoff.setDate(cutoff.getDate()-(days-1));
-  return { from: isoFromDate(cutoff), to:null };
-}
+function compareActiveRange(){ return periodRange('cmp'); }
 function compareTypeFilterLabel(){
   return DASH_TYPE_LABELS[state.compareTypeFilter] ?? 'Toutes les séances';
 }
@@ -6570,8 +6577,7 @@ async function renderCompareBody(){
   const snapA = computeUserSnapshot(sessA, range, state.compareTypeFilter);
   const snapB = computeUserSnapshot(sessB, range, state.compareTypeFilter);
 
-  const periodLabel = document.getElementById('cmp-period-label');
-  if(periodLabel) periodLabel.textContent = COMPARE_PERIOD_LABELS[Number(state.comparePeriod)] ?? '';
+  syncPeriodPanel('cmp', 'cmp');
   const typeLabel = document.getElementById('cmp-type-label');
   if(typeLabel) typeLabel.textContent = compareTypeFilterLabel();
 
@@ -6600,10 +6606,7 @@ function renderCompareView(){
         ${filterChipHtml('cmp-a-panel','Profil A','cmp-a-label','','')}
         ${filterChipHtml('cmp-b-panel','Profil B','cmp-b-label','','')}
       </div>
-      ${filterChipHtml('cmp-period-panel','Période','cmp-period-label','',`
-        <div class="seg-group" id="cmp-period-group">
-          ${[[7,'7j'],[30,'30j'],[90,'90j'],[0,'Tout']].map(([v,l])=>`<button class="seg-btn${String(state.comparePeriod)===String(v)?' active':''}" data-cp="${v}">${l}</button>`).join('')}
-        </div>`)}
+      ${filterChipHtml('cmp-period-panel','Période','cmp-period-label',periodLabel('cmp'),periodPanelHtml('cmp'))}
       ${filterChipHtml('cmp-type-panel','Type','cmp-type-label','',`
         <div class="seg-group" id="cmp-type-group">
           ${[['__all__','Tout'],['push','Push'],['pull','Pull'],['upper','Upper'],['legs','Legs'],['other','Autres']].map(([v,l])=>`<button class="seg-btn${state.compareTypeFilter===v?' active':''}" data-ct="${v}">${l}</button>`).join('')}
@@ -6612,13 +6615,7 @@ function renderCompareView(){
     <div id="cmp-body"><div class="card">${emptyState('COMPARE','Chargement…','Calcul de la comparaison en cours.')}</div></div>
   `;
   bindFilterChips(el);
-  el.querySelectorAll('#cmp-period-group [data-cp]').forEach(b=>{
-    b.addEventListener('click', ()=>{
-      state.comparePeriod = Number(b.dataset.cp);
-      el.querySelectorAll('#cmp-period-group .seg-btn').forEach(x=>x.classList.toggle('active', String(x.dataset.cp)===String(state.comparePeriod)));
-      renderCompareBody();
-    });
-  });
+  bindPeriodPanel('cmp', 'cmp', renderCompareBody);
   el.querySelectorAll('#cmp-type-group [data-ct]').forEach(b=>{
     b.addEventListener('click', ()=>{
       state.compareTypeFilter = b.dataset.ct;
