@@ -2,8 +2,8 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.11
-terminé: v5.11 (filtres de période : Tout · Semaine · Mois · Personnalisé, composant commun), v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur), v5.10 (synchro Google Drive manuelle : boutons Envoyer/Récupérer dans Données › Sauvegarde)
+version: 5.13
+terminé: v5.13 (stat « Types de séance par jour de la semaine », onglet Statistiques › Résumé), v5.11 (filtres de période : Tout · Semaine · Mois · Personnalisé, composant commun), v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur), v5.10 (synchro Google Drive manuelle : boutons Envoyer/Récupérer dans Données › Sauvegarde)
 en cours: (rien)
 prochaine: (rien)
 notes (ne garder que ce qui sert aux futures modifications) :
@@ -792,6 +792,19 @@ tr.clickable:hover td.col-pr{background:rgba(var(--accent-rgb),0.12);}
 
 /* ---------- general depth & polish ---------- */
 td.mono{color:var(--muted);}
+/* Filtres (bureau) : le panneau s'ouvre sur sa propre ligne SOUS la barre de filtres et décale le contenu vers le bas
+   (comme sur mobile), pour qu'on voie les options sans qu'elles recouvrent la page. */
+@media(min-width:601px){
+  .filter-bar .filter-panel,.filter-bar .filter-chip-wrap:last-child .filter-panel{
+    position:static;order:10;flex:0 0 100%;box-sizing:border-box;
+    flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 12px;
+    min-width:0;max-width:none;padding:4px 0;box-shadow:none;
+  }
+  .filter-bar .filter-panel:has(.period-nav){width:auto;}
+  .filter-bar .period-nav-label{flex:0 0 205px;}
+  .filter-bar .filter-chip[aria-expanded="true"] .pl-full{display:inline;}
+  .filter-bar .filter-chip[aria-expanded="true"] .pl-mode{display:none;}
+}
 </style>
 </head>
 <body>
@@ -1020,6 +1033,7 @@ let state = {
   recMuscleFilter: '__all__',
   recSort: {key:'name', dir:'asc'},
   statsTab: 'summary', // 'summary' | 'progress' | 'muscles' | 'heart' — onglet affiché dans Statistiques
+  weekdayChartMode: 'count', // 'count' | 'type' — bascule du widget « Fréquence par jour de la semaine »
   muscleChartMode: 'muscle', // 'muscle' | 'sessionType' — bascule le widget "Répartition du volume"
   dashTypeFilter: '__all__', // '__all__' | 'push' | 'pull' | 'upper' | 'legs' | 'other' — filtre par type de séance du tableau de bord
   comparePeriod: 0, // 0 (tout) | 'week' | 'month' | 'custom' — période analysée dans la vue "Comparer les profils"
@@ -2428,6 +2442,16 @@ function classifySessionType(name){
   if(n.includes('legs') || n.includes('leg') || n.includes('jambe')) return 'legs';
   return 'other';
 }
+/* Nombre de séances par jour de la semaine (lun→dim) ET par type de séance (push/pull/upper/legs/other). */
+function computeWeekdayTypeBreakdown(range){
+  const keys = ['push','pull','upper','legs','other'];
+  const rows = DAYS_FR.map(()=>({push:0, pull:0, upper:0, legs:0, other:0}));
+  sessionsInRange(range).forEach(s=>{
+    const d = new Date(s.date+'T00:00:00');
+    rows[(d.getDay()+6)%7][classifySessionType(s.name)]++;
+  });
+  return {keys, rows};
+}
 function computeSessionTypeBreakdown(range){
   const sessions = sessionsInRange(range);
   const counts = {push:0, pull:0, upper:0, legs:0, other:0};
@@ -2747,8 +2771,11 @@ function renderDashboard(){
         <div style="height:200px;" id="kcal-trend-wrap"><canvas id="chart-kcal-trend"></canvas></div>
       </div>
       <div class="card">
-        <div class="section-title">Fréquence par jour de la semaine</div>
-        <div style="height:200px;" id="weekday-chart-wrap"><canvas id="chart-weekday"></canvas></div>
+        <div class="card-head toggle-head" style="min-height:34px;">
+          <div class="section-title" style="margin-bottom:0;line-height:34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="weekday-chart-title"></div>
+          <button type="button" class="btn ghost icon-btn-square card-head-btn" id="weekday-mode-btn"></button>
+        </div>
+        <div style="height:230px;" id="weekday-chart-wrap"><canvas id="chart-weekday"></canvas></div>
       </div>
     </div>
 
@@ -2857,6 +2884,12 @@ function renderDashboard(){
       document.querySelectorAll('#muscle-mode-group .seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.mm===state.muscleChartMode));
       renderMuscleChart(getActiveRange());
     });
+  });
+
+  const wdBtn = document.getElementById('weekday-mode-btn');
+  if(wdBtn) wdBtn.addEventListener('click', ()=>{
+    state.weekdayChartMode = state.weekdayChartMode==='type' ? 'count' : 'type';
+    renderWeekdayChart(getActiveRange());
   });
 
   bindFilterChips(el);
@@ -3207,11 +3240,11 @@ function renderDurationTrendChart(range){
   }
   renderChartSafe('chart-duration-trend', {
     type:'bar',
-    data:{ labels: buckets.map(b=>b.label), datasets:[{ label:'Durée', data: buckets.map(b=>Math.round(b.minutes)), backgroundColor:COLORS.duration, borderRadius:4, maxBarThickness:34 }] },
+    data:{ labels: buckets.map(b=>b.label), datasets:[{ label:'Durée (h)', data: buckets.map(b=>Math.round(b.minutes/60*100)/100), backgroundColor:COLORS.duration, borderRadius:4, maxBarThickness:34 }] },
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=> formatDuration(ctx.parsed.y) } } },
-      scales:{ x:chartGridOpts(), y:chartGridOpts() }
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=> formatDuration(Math.round(ctx.parsed.y*60)) } } },
+      scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(), {ticks:Object.assign({}, chartGridOpts().ticks, {callback:(v)=> v+' h'})}) }
     }
   });
 }
@@ -3391,9 +3424,54 @@ function renderHRTrendChart(range){
     }).join('');
   }
 }
+function renderWeekdayTypeChart(range){
+  const wrapEl = document.getElementById('weekday-chart-wrap');
+  if(!wrapEl) return;
+  const {keys, rows} = computeWeekdayTypeBreakdown(range);
+  const active = keys.filter(k=>rows.some(r=>r[k]>0));
+  if(active.length===0){
+    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur cette période.');
+    return;
+  }
+  if(!document.getElementById('chart-weekday')){
+    wrapEl.innerHTML = '<canvas id="chart-weekday"></canvas>';
+  }
+  renderChartSafe('chart-weekday', {
+    type:'bar',
+    data:{ labels: DAYS_FR, datasets: active.map(k=>({
+      label: k==='other' ? 'Autres' : SESSION_TYPES[k].label,
+      data: rows.map(r=>r[k]),
+      backgroundColor: SESSION_TYPES[k].color,
+      borderRadius:3, maxBarThickness:34
+    })) },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ color:COLORS.muted, boxWidth:10, font:{size:11} } },
+        tooltip:{ callbacks:{ footer:(items)=>{ const t = items.reduce((a,i)=>a+i.parsed.y,0); return `Total : ${t} séance${t>1?'s':''}`; } } } },
+      scales:{
+        x: Object.assign(chartGridOpts(), {stacked:true}),
+        y: Object.assign(chartGridOpts(), {stacked:true, ticks:Object.assign({}, chartGridOpts().ticks, {stepSize:1})})
+      }
+    }
+  });
+}
+/* Bouton-icône du widget « jour de la semaine » : il affiche l'icône de la vue VERS laquelle il bascule.
+   Les deux titres sont courts, sur une seule ligne (nowrap) et la hauteur de l'en-tête est fixe : rien ne bouge au changement. */
+function syncWeekdayToggle(){
+  const byType = state.weekdayChartMode==='type';
+  const t = document.getElementById('weekday-chart-title');
+  if(t) t.textContent = byType ? 'Types de séance par jour' : 'Séances par jour';
+  const b = document.getElementById('weekday-mode-btn');
+  if(!b) return;
+  const label = byType ? 'Voir le total par jour' : 'Voir les types de séance par jour';
+  b.innerHTML = byType ? iconSvg('M4 19V10M10 19V5M16 19V13M22 19H2') : iconSvg('M4 20h6v-5H4zM4 15h6v-5H4zM14 20h6v-9h-6zM14 11h6V7h-6z');
+  b.title = label; b.setAttribute('aria-label', label);
+}
 function renderWeekdayChart(range){
   const wrapEl = document.getElementById('weekday-chart-wrap');
   if(!wrapEl) return;
+  syncWeekdayToggle();
+  if(state.weekdayChartMode==='type'){ renderWeekdayTypeChart(range); return; }
   const counts = computeWeekdayFrequency(range);
   if(counts.every(c=>c===0)){
     wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur cette période.');
@@ -4691,6 +4769,7 @@ function renderExercisesView(){
         ${n?`<button class="btn ghost" id="ex-clear-filters">Réinitialiser</button>`:''}
       </div>
       <div id="ex-filters-wrap" style="${window.exFOpen?'':'display:none;'}margin-bottom:10px;">${exFilterPanelHtml()}</div>
+      ${unclassifiedCount()>0 ? `<button type="button" class="home-alert" id="ex-unclassified-warn" style="margin:0 0 10px;">⚠ ${unclassifiedCount()} exercice${unclassifiedCount()>1?'s':''} à classer${exFilterUnclassified?' (affichés ci-dessous)':' — voir la liste'} <span aria-hidden="true">→</span></button>` : ''}
       <div id="ex-active-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
       <div class="count-pill" id="ex-count-pill" style="margin-bottom:10px;display:inline-block;"></div>
       <div id="ex-results"></div>
@@ -4720,6 +4799,8 @@ function renderExercisesView(){
     exF.pulleys = f==='cable' ? ['__cable__'] : [];
     renderExercisesView();
   }));
+  const warnBtn = document.getElementById('ex-unclassified-warn');
+  if(warnBtn) warnBtn.addEventListener('click', ()=>{ exFilterUnclassified = true; exF.status = '__all__'; renderExercisesView(); });
   document.getElementById('add-exercise-btn').addEventListener('click', ()=> openExerciseModal(null));
   const si = document.getElementById('ex-search-input');
   si.addEventListener('input', ()=>{ exSearchQuery = si.value; refreshResults(); });
@@ -4753,8 +4834,10 @@ function renderExercisesTable(list, idx, isDup){
   };
   list.sort((a,b)=>dir*(sorters[exSortKey]?sorters[exSortKey](a,b):sorters.name(a,b)));
   if(!list.length) return emptyState('M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4','Rien ici', exActiveCount()? 'Aucun exercice ne correspond à ces filtres. Retire-en un pour élargir.' : 'Aucun exercice.');
+  // La colonne « Statut » n'apparaît que s'il reste au moins un exercice à classer.
+  const showStatus = unclassifiedCount()>0;
   const th=(k,l)=>`<th class="clickable" data-sort="${k}" style="cursor:pointer;">${l} ${sortArrow(k)}</th>`;
-  return `<table class="tbl-cards"><thead><tr>${th('name','Exercice')}${th('muscles','Groupes musculaires')}${th('variants','Variantes')}${th('pulleys','Poulies utilisées')}${th('last','Dernière séance')}${th('usage','Utilisations')}${th('status','Statut')}</tr></thead><tbody>
+  return `<table class="tbl-cards"><thead><tr>${th('name','Exercice')}${th('muscles','Groupes musculaires')}${th('variants','Variantes')}${th('pulleys','Poulies utilisées')}${th('last','Dernière séance')}${th('usage','Utilisations')}${showStatus?th('status','Statut'):''}</tr></thead><tbody>
   ${list.map(e=>{
     const u=U(e), sv=e.variants.slice().sort((a,b)=>a.localeCompare(b));
     const vHi=v=> exF.variants.includes(v);
@@ -4766,7 +4849,7 @@ function renderExercisesTable(list, idx, isDup){
       <td data-label="Poulies utilisées">${pills}</td>
       <td class="mono" data-label="Dernière séance">${u.last?fmtDateShort(u.last):'<span style="color:var(--muted-2);">—</span>'}</td>
       <td class="mono" data-label="Utilisations">${u.count>0?`<span class="usage-link" title="Voir l'historique complet" onclick="event.preventDefault();event.stopPropagation();openExerciseHistoryModal('${e.id}');">${u.count}</span>`:'<span style="color:var(--muted);">0</span>'}</td>
-      <td data-label="Statut">${(e.classified&&e.muscles.length)?'<span class="badge ok">Classé</span>':'<span class="badge warn">À classer</span>'}</td>
+      ${showStatus?`<td data-label="Statut">${(e.classified&&e.muscles.length)?'<span class="badge ok">Classé</span>':'<span class="badge warn">À classer</span>'}</td>`:''}
     </tr>`;}).join('')}
   </tbody></table>`;
 }
@@ -6505,7 +6588,8 @@ function buildCompareBarWidgetsHtml(){
 }
 function renderCompareBarWidgets(uA, uB, snapA, snapB){
   const legend = twoUserLegendHtml(uA, uB);
-  function twoUserBar(key, wrapId, canvasId, mergedRows, tooltipFmt, emptyIcon, emptyMsg){
+  function twoUserBar(key, wrapId, canvasId, mergedRows, tooltipFmt, emptyIcon, emptyMsg, decimals, yTick){
+    const rd = v=> decimals ? Math.round(v*Math.pow(10,decimals))/Math.pow(10,decimals) : Math.round(v);
     const wrap = document.getElementById(wrapId);
     if(!wrap) return;
     if(mergedRows.length===0){
@@ -6517,13 +6601,13 @@ function renderCompareBarWidgets(uA, uB, snapA, snapB){
     renderChartSafe(canvasId, {
       type:'bar',
       data:{ labels: mergedRows.map(r=>r.label), datasets:[
-        { label: uA.name, data: mergedRows.map(r=>Math.round(r.a)), backgroundColor: COMPARE_COLORS.a, borderRadius:4, maxBarThickness:20 },
-        { label: uB.name, data: mergedRows.map(r=>Math.round(r.b)), backgroundColor: COMPARE_COLORS.b, borderRadius:4, maxBarThickness:20 }
+        { label: uA.name, data: mergedRows.map(r=>rd(r.a)), backgroundColor: COMPARE_COLORS.a, borderRadius:4, maxBarThickness:20 },
+        { label: uB.name, data: mergedRows.map(r=>rd(r.b)), backgroundColor: COMPARE_COLORS.b, borderRadius:4, maxBarThickness:20 }
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{display:false}, tooltip: tooltipFmt ? { callbacks:{ label: tooltipFmt } } : undefined },
-        scales:{ x:chartGridOpts(), y:chartGridOpts() }
+        scales:{ x:chartGridOpts(), y: yTick ? Object.assign(chartGridOpts(), {ticks:Object.assign({}, chartGridOpts().ticks, {callback:yTick})}) : chartGridOpts() }
       }
     });
   }
@@ -6532,10 +6616,10 @@ function renderCompareBarWidgets(uA, uB, snapA, snapB){
   twoUserBar('volume', 'cmp-bar-wrap-volume', 'cmp-bar-volume', volumeRows, null,
     'M4 19V10M10 19V5M16 19V13M22 19H2', 'Aucune séance sur cette période.');
 
-  const durationRows = mergeTrendSeries(snapA.durationTrend, snapB.durationTrend, 'minutes');
+  const durationRows = mergeTrendSeries(snapA.durationTrend, snapB.durationTrend, 'minutes').map(r=>({...r, a:r.a/60, b:r.b/60}));
   twoUserBar('duration', 'cmp-bar-wrap-duration', 'cmp-bar-duration', durationRows,
-    (ctx)=> `${ctx.dataset.label} : ${formatDuration(ctx.parsed.y)}`,
-    'M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Aucune durée renseignée sur cette période.');
+    (ctx)=> `${ctx.dataset.label} : ${formatDuration(Math.round(ctx.parsed.y*60))}`,
+    'M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Aucune durée renseignée sur cette période.', 2, (v)=> v+' h');
 
   const kcalRows = mergeTrendSeries(snapA.kcalTrend, snapB.kcalTrend, 'kcal');
   twoUserBar('kcal', 'cmp-bar-wrap-kcal', 'cmp-bar-kcal', kcalRows,
