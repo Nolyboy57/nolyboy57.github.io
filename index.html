@@ -2,14 +2,15 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.13
-terminé: v5.13 (stat « Types de séance par jour de la semaine », onglet Statistiques › Résumé), v5.11 (filtres de période : Tout · Semaine · Mois · Personnalisé, composant commun), v5.0 à v5.7 (refonte complète, étapes 1a à 8 puis R1 à R7), v5.8 (S1 à S4), v5.9 (étapes 1 à 6 : menus variante/poulie, sélecteur mobile, sélecteur d'exercice partout, historique comparateur), v5.10 (synchro Google Drive manuelle : boutons Envoyer/Récupérer dans Données › Sauvegarde)
+version: 5.16
+terminé: (rien)
 en cours: (rien)
 prochaine: (rien)
 notes (ne garder que ce qui sert aux futures modifications) :
 - Fichier unique, sans build. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
 - Couleurs : jamais en dur ; COLORS + USER_COLOR_POOL, variables CSS (--accent, --surface…). Ne pas renommer ids HTML, fonctions ni clés de stockage ; stockage via readStored/writeStored.
 - Éditeur : le champ caché [data-entry-exercise] est la source de vérité de l'exercice ; la liste de variante n'existe que si l'exercice a des variantes ; persistSessionEditor relit le DOM. Séance validée = lecture seule.
+- Carte de chaleur : état partagé dans heatmapUI ; interactions déléguées (pointer events + click) sur #heatmap-wrap ; zones du corps et lignes de légende portent data-muscle ; classes is-active (survol) / is-selected (clic). Ids HTML heatmap-front/back/legend/wrap/card conservés (ajouts : heatmap-bodies, heatmap-toggle, heatmap-scale, heatmap-detail, heatmap-tip).
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -313,21 +314,61 @@ th[data-sort]:hover{color:var(--text);}
 .muscle-tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin:1px 5px 1px 0;}
 .muscle-tag .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
 
-.heatmap-wrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;}
-.heatmap-bodies{display:flex;gap:20px;}
+.heatmap-wrap{position:relative;display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;}
+.heatmap-left{display:flex;flex-direction:column;gap:12px;max-width:100%;min-width:0;}
+.heatmap-toggle{display:none;}
+.heatmap-bodies{display:flex;gap:20px;justify-content:center;}
 .heatmap-body-col{text-align:center;}
 .heatmap-body-col .heatmap-label{font-family:var(--font-mono);font-size:10.5px;letter-spacing:0.06em;color:var(--muted-2);text-transform:uppercase;margin-bottom:6px;}
-.heatmap-body-col svg{width:130px;height:auto;display:block;}
-.heatmap-regions [data-muscle]{cursor:pointer;transition:fill-opacity .15s, stroke .15s;}
-.heatmap-regions [data-muscle]:hover{stroke:var(--text);stroke-width:1.6;}
-.heatmap-legend{flex:1;min-width:190px;display:flex;flex-direction:column;gap:6px;}
-.heatmap-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
-.heatmap-legend-row .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex-shrink:0;}
-.heatmap-legend-row .name{flex:1;}
+.heatmap-body-col svg{width:160px;height:auto;display:block;-webkit-tap-highlight-color:transparent;}
+/* Couleurs posées par renderMuscleHeatmap via --hm-fill / --hm-stroke (échelle dérivée de l'accent du profil) ;
+   la transition anime le changement de période ou de filtre. États is-active (survol, corps ou légende) / is-selected (clic ou toucher). */
+.heatmap-regions [data-muscle]{cursor:pointer;fill:var(--hm-fill,var(--surface-3));stroke:var(--hm-stroke,var(--border));stroke-width:0.35;stroke-linejoin:round;transition:fill .4s ease, stroke .4s ease, filter .15s, opacity .15s;}
+.heatmap-regions [data-muscle].is-active,.heatmap-regions [data-muscle].is-selected{stroke:var(--text);stroke-width:0.8;filter:brightness(1.15);}
+.heatmap-regions [data-muscle].is-selected{stroke-width:1.1;}
+.heatmap-wrap.has-focus .heatmap-regions [data-muscle]:not(.is-active):not(.is-selected){opacity:.5;}
+.heatmap-regions .heat-shade{pointer-events:none;stroke:none;}
+.heatmap-detail{width:0;min-width:100%;min-height:54px;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;font-size:12.5px;color:var(--muted-2);}
+.heatmap-detail .dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 1px rgba(255,255,255,0.08);}
+.heatmap-detail b{color:var(--text);font-size:13.5px;}
+.heatmap-detail .sub{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin-top:2px;}
+.heatmap-scale{width:0;min-width:100%;display:grid;grid-template-columns:auto 1fr;column-gap:8px;row-gap:3px;align-items:center;font-size:10.5px;color:var(--muted-2);}
+.heatmap-scale[hidden],.heatmap-tip[hidden]{display:none;}
+.hm-sc-zero{width:26px;height:10px;border-radius:5px;border:1px solid var(--border);}
+.hm-sc-bar{height:10px;border-radius:5px;border:1px solid var(--border);}
+.hm-sc-labels,.hm-sc-vals{display:flex;justify-content:space-between;gap:6px;}
+.hm-sc-vals{font-family:var(--font-mono);}
+.heatmap-tip{position:absolute;left:0;top:0;z-index:5;pointer-events:none;background:var(--surface-3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;box-shadow:0 6px 18px rgba(0,0,0,0.35);font-size:12px;white-space:nowrap;}
+.hm-tip-name{display:flex;align-items:center;gap:6px;color:var(--text);font-weight:600;}
+.hm-tip-name i{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.hm-tip-val{font-family:var(--font-mono);color:var(--muted);margin-top:2px;}
+.heatmap-legend{flex:1;min-width:min(190px,100%);display:flex;flex-direction:column;gap:2px;}
+.heatmap-legend-row{display:grid;grid-template-columns:9px 1fr auto;column-gap:8px;row-gap:3px;align-items:center;width:100%;margin:0;padding:5px 6px;border:1px solid transparent;border-radius:7px;background:none;color:inherit;font:inherit;font-size:12.5px;text-align:left;cursor:pointer;transition:background .15s,border-color .15s,opacity .15s;}
+.heatmap-legend-row.static{cursor:default;}
+.heatmap-legend-row.is-active{background:var(--surface-2);}
+.heatmap-legend-row.is-selected{background:var(--surface-2);border-color:var(--border);}
+.heatmap-legend-row:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+.heatmap-wrap.has-focus .heatmap-legend-row[data-muscle]:not(.is-active):not(.is-selected){opacity:.6;}
+.heatmap-legend-row .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px rgba(255,255,255,0.08);flex-shrink:0;}
+.heatmap-legend-row .name{min-width:0;overflow-wrap:anywhere;}
 .heatmap-legend-row .val{color:var(--muted);}
+.heatmap-legend-row .bar{grid-column:2 / -1;height:3px;border-radius:2px;background:var(--surface-3);overflow:hidden;}
+.heatmap-legend-row .bar i{display:block;height:100%;border-radius:2px;}
 @media(max-width:620px){
   .heatmap-wrap{gap:14px;}
-  .heatmap-body-col svg{width:100px;}
+  .heatmap-body-col svg{width:140px;}
+}
+/* Petits écrans : bascule Face / Dos (en plus de l'affichage côte à côte) */
+@media(max-width:600px){
+  .heatmap-toggle{display:flex;width:fit-content;align-self:center;}
+  .heatmap-toggle .seg-btn{min-height:44px;}
+  .heatmap-bodies[data-view="front"] .heatmap-body-col:last-child,
+  .heatmap-bodies[data-view="back"] .heatmap-body-col:first-child{display:none;}
+  .heatmap-bodies[data-view="front"] svg,.heatmap-bodies[data-view="back"] svg{width:min(220px,62vw);}
+  .heatmap-legend-row{min-height:44px;}
+}
+@media(prefers-reduced-motion:reduce){
+  .heatmap-regions [data-muscle],.heatmap-legend-row{transition:none;}
 }
 
 .sets-pills{display:flex;flex-wrap:wrap;gap:4px;max-width:280px;}
@@ -902,55 +943,40 @@ const MUSCLE_GROUPS = [
 function muscleInfo(id){ return MUSCLE_GROUPS.find(m=>m.id===id) || {id, label:id, color:MUSCLE_GROUPS[MUSCLE_GROUPS.length-1].color}; }
 
 /* ---- Silhouette corporelle (widget "Carte de chaleur musculaire") ----
-   Contour décoratif (gris, non interactif) commun aux deux vues, viewBox 0 0 200 420. */
-const BODY_OUTLINE_SVG = `
-  <circle cx="100" cy="28" r="20"/>
-  <rect x="92" y="46" width="16" height="10" rx="3"/>
-  <polygon points="68,56 132,56 126,178 74,178"/>
-  <polygon points="74,178 126,178 134,206 66,206"/>
-  <polygon points="46,60 66,58 64,140 44,142"/>
-  <polygon points="154,60 134,58 136,140 156,142"/>
-  <polygon points="44,142 64,140 62,205 42,207"/>
-  <polygon points="156,142 136,140 138,205 158,207"/>
-  <ellipse cx="38" cy="215" rx="9" ry="12"/>
-  <ellipse cx="162" cy="215" rx="9" ry="12"/>
-  <polygon points="66,206 100,206 96,300 70,300"/>
-  <polygon points="100,206 134,206 130,300 104,300"/>
-  <polygon points="70,300 96,300 92,395 74,395"/>
-  <polygon points="104,300 130,300 126,395 108,395"/>
-  <ellipse cx="80" cy="405" rx="14" ry="8"/>
-  <ellipse cx="120" cy="405" rx="14" ry="8"/>
-`;
-/* Zones "cliquables" par groupe musculaire, superposées au contour. Un même id peut apparaître
-   plusieurs fois (gauche/droite, ou face+dos pour les épaules) : toutes les formes d'un même id
-   sont colorées selon le même volume total. */
+   Tracés des zones musculaires (face + dos) adaptés du paquet « react-body-highlighter » (MIT License,
+   Copyright (c) 2020 GV79 — https://github.com/giavinh79/react-body-highlighter). Permission is hereby granted,
+   free of charge, to use, copy, modify and distribute this software, provided the copyright notice and this
+   permission notice are included. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+   Adaptation : polygones convertis en chemins aux angles arrondis, regroupés par id de MUSCLE_GROUPS, viewBox 0 0 100 200.
+   BODY_NEUTRAL = parties du corps sans groupe musculaire (tête, cou, genoux, chevilles), affichées en gris. */
+const BODY_NEUTRAL = {
+  front: 'M55.9,24.5Q55.5,23.7 55.1,24.5L51,32.7Q50.6,33.5 50.6,34.4L50.6,38.3Q50.6,39.2 51.5,39.3L60.7,39.9Q61.6,40 62.4,40.4L69.8,44.5Q70.6,44.9 70.5,44L69.5,37.6Q69.4,36.7 68.5,36.5L64.1,35.3Q63.3,35.1 62.6,34.5L59,31.2Q58.4,30.6 58,29.8ZM29.8,44.4Q29,44.9 29.1,44L30.1,38Q30.2,37.1 31.1,36.9L35.5,35.4Q36.3,35.1 37,34.5L40.6,30.8Q41.2,30.2 41.7,29.4L44,25.3Q44.5,24.5 44.9,25.3L48.6,33.1Q49,33.9 48.9,34.8L48.6,38.3Q48.6,39.2 47.7,39.2L38.9,39.6Q38,39.6 37.2,40ZM43.3,2.5Q42.4,2.9 42.2,3.7L40.2,11Q40,11.8 40.2,12.7L41.8,18.7Q42,19.6 42.7,20.2L45.5,22.7Q46.1,23.3 46.9,23.7L49,24.9Q49.8,25.3 50.6,24.9L53.9,22.9Q54.7,22.4 55.3,21.8L57,19.9Q57.6,19.2 57.7,18.3L59,11.1Q59.2,10.2 59,9.3L57.4,3.3Q57.1,2.4 56.3,2.2L50.6,0.3Q49.8,0 49,0.3ZM33.3,140.7Q33.9,140 34.1,140.9L34.5,142.4Q34.7,143.3 34.9,144.1L35.3,146.5Q35.5,147.3 35.7,148.2L36.1,150.1Q36.3,151 36.1,151.9L35.3,155.9Q35.1,156.7 34.2,156.7L30.7,156.7Q29.8,156.7 29.3,156L27.8,153.4Q27.3,152.7 27.3,151.8L27.3,148.2Q27.3,147.3 27.9,146.7L29.6,144.8Q30.2,144.1 30.8,143.4ZM65.5,140.9Q65.7,140 66.3,140.7L71.7,147.1Q72.2,147.8 72.2,148.7L72.2,151.3Q72.2,152.2 71.8,153L70.2,156.3Q69.8,157.1 68.9,157.1L65.8,156.8Q64.9,156.7 64.6,155.9L63.2,151.9Q62.9,151 63.1,150.1Z',
+  back: 'M51.5,0.2Q50.6,0 49.8,0.2L46.8,0.7Q46,0.9 45.3,1.5L41.5,4.9Q40.9,5.5 40.8,6.4L40.5,11.9Q40.4,12.8 40.9,13.5L44.6,19.2Q45.1,20 46,20L54.8,20Q55.7,20 56.2,19.2L58.7,14.4Q59.1,13.6 59.2,12.7L59.5,5.6Q59.6,4.7 58.9,4.1L56.4,1.9Q55.7,1.3 54.9,1.1ZM34.7,154Q34.5,153.2 34,154L31.5,158.4Q31.1,159.1 31.4,160L33.3,165.5Q33.6,166.4 34.3,165.7L36.8,163.2Q37.4,162.6 37.2,161.7ZM66.8,154.4Q66.4,153.6 66.1,154.5L63.3,162.1Q63,163 63.7,163.6L66.1,165.8Q66.8,166.4 67.1,165.5L69.1,160Q69.4,159.1 68.9,158.4ZM28.2,196.2Q28.5,195.7 29.1,195.7L29.6,195.7Q30.2,195.7 30.5,196.3L33.2,200.9Q33.6,201.7 33.5,202.6L30.8,219.1Q30.6,220 30.4,219.1L28.8,214.5Q28.5,213.6 28.4,212.7L26.9,199.2Q26.8,198.3 27.3,197.5ZM69.5,196.4Q69.8,195.7 70.5,195.7L71.2,195.7Q71.9,195.7 72.3,196.4L73.1,197.5Q73.6,198.3 73.5,199.2L72,212.3Q71.9,213.2 71.7,214.1L70.4,218.7Q70.2,219.6 70.1,218.7L67.4,203Q67.2,202.1 67.6,201.3Z'
+};
+/* Zones "interactives" par groupe musculaire. Un même id peut regrouper plusieurs formes (gauche/droite,
+   plusieurs faisceaux) : elles sont toutes colorées selon le même volume total. */
 const BODY_REGIONS = {
   front: [
-    {id:'epaules', shape:'ellipse', cx:56, cy:64, rx:16, ry:14},
-    {id:'epaules', shape:'ellipse', cx:144, cy:64, rx:16, ry:14},
-    {id:'pectoraux', shape:'polygon', points:'74,60 126,60 122,100 78,100'},
-    {id:'abdominaux', shape:'polygon', points:'78,100 122,100 118,175 82,175'},
-    {id:'biceps', shape:'ellipse', cx:55, cy:100, rx:11, ry:28},
-    {id:'biceps', shape:'ellipse', cx:145, cy:100, rx:11, ry:28},
-    {id:'avant-bras', shape:'ellipse', cx:53, cy:170, rx:10, ry:28},
-    {id:'avant-bras', shape:'ellipse', cx:147, cy:170, rx:10, ry:28},
-    {id:'quadriceps', shape:'polygon', points:'70,210 92,210 96,295 76,295'},
-    {id:'quadriceps', shape:'polygon', points:'108,210 130,210 124,295 104,295'},
-    {id:'adducteurs', shape:'polygon', points:'92,210 108,210 104,295 96,295'},
-    {id:'abducteurs', shape:'polygon', points:'66,206 78,206 74,240 64,238'},
-    {id:'abducteurs', shape:'polygon', points:'134,206 122,206 126,240 136,238'}
+    {id:'pectoraux', d:'M52.7,41.6Q51.8,41.6 51.8,42.5L51.1,54.2Q51,55.1 51.9,55.4L57.1,57.6Q58,58 58.8,57.7L66.9,55.7Q67.8,55.5 68.1,54.7L70.3,48.2Q70.6,47.3 69.9,46.8L62.8,42.1Q62,41.6 61.1,41.6ZM30.6,46.1Q29.8,46.5 30,47.4L31.3,54.6Q31.4,55.5 32.3,55.7L39.9,57.7Q40.8,58 41.7,57.6L47.3,55.4Q48.2,55.1 48.1,54.2L47.8,42.9Q47.8,42 46.9,42L38.5,42Q37.6,42 36.8,42.5Z'},
+    {id:'abdominaux', d:'M68.3,64.1Q68.6,63.3 68.4,62.4L67.5,58Q67.3,57.1 66.5,57.4L59.6,59.3Q58.8,59.6 59,60.5L59.8,63.2Q60,64.1 60,65L60.4,82.4Q60.4,83.3 61.1,82.7L65,79.4Q65.7,78.8 65.8,77.9L66.4,70.7Q66.5,69.8 66.8,68.9ZM34.5,79Q33.9,78.4 33.8,77.5L33.2,72.7Q33.1,71.8 32.9,71L31.2,64.1Q31,63.3 31.2,62.4L32.1,58Q32.2,57.1 33.1,57.4L39.9,59Q40.8,59.2 40.5,60L39.5,62.4Q39.2,63.3 39.2,64.2L39.2,82.8Q39.2,83.7 38.5,83ZM55.5,58.9Q56.3,59.2 56.6,60L57.7,63.2Q58,64.1 58,65L58.3,77.1Q58.4,78 58.4,78.9L58.4,91.8Q58.4,92.7 58.1,93.5L56.6,97.5Q56.3,98.4 56.1,99.2L55.3,103.2Q55.1,104.1 54.5,104.7L52.1,107.1Q51.4,107.8 51.4,106.9L51,85.4Q51,84.5 51,83.6L50.6,68.2Q50.6,67.3 50.6,66.4L51,58Q51,57.1 51.9,57.5ZM43.3,59.6Q43.7,58.8 44.5,58.5L47.7,57.4Q48.6,57.1 48.6,58L48.9,66.4Q49,67.3 49,68.2L48.6,83.6Q48.6,84.5 48.6,85.4L48.2,106.4Q48.2,107.3 47.5,106.7L45.1,104.3Q44.5,103.7 44.2,102.8L41.1,92.3Q40.8,91.4 40.8,90.5L40.8,79.3Q40.8,78.4 40.8,77.5L41.2,65.4Q41.2,64.5 41.6,63.7Z'},
+    {id:'biceps', d:'M17,67.3Q16.7,68.2 17.1,69L17.6,70.6Q18,71.4 18.6,70.8L22.2,66.8Q22.9,66.1 23.3,65.3L28.6,54.7Q29,53.9 28.7,53L28,50.3Q27.8,49.4 27.1,50L21.1,55.3Q20.4,55.9 20.1,56.8ZM72.1,50Q71.4,49.4 71.2,50.3L70.4,53.8Q70.2,54.7 70.6,55.5L75.9,65.3Q76.3,66.1 76.9,66.8L81,71.2Q81.6,71.8 82,71L82.5,69.8Q82.9,69 82.6,68.1L79,56.4Q78.8,55.5 78.1,54.9Z'},
+    {id:'triceps', d:'M69.8,56.3Q69.4,55.5 69.4,56.4L69.4,60.7Q69.4,61.6 69.8,62.4L75.5,71.9Q75.9,72.7 76.4,71.9L77.1,71Q77.6,70.2 77,69.5L76,68.1Q75.5,67.3 75.1,66.5ZM22.5,70.3Q22.4,69.4 22.9,68.6L29.4,56.3Q29.8,55.5 29.8,56.4L29.8,59.9Q29.8,60.8 29.4,61.6L23.3,72.3Q22.9,73.1 22.8,72.2Z'},
+    {id:'epaules', d:'M77.7,52.5Q78.4,53.1 78.6,52.2L79.4,48.6Q79.6,47.8 79.5,46.9L79.2,42.1Q79.2,41.2 78.5,40.6L76.6,38.6Q75.9,38 75.1,37.7L71.9,36.6Q71,36.3 71.2,37.2L72.1,42Q72.2,42.9 72.1,43.7L71.6,46.5Q71.4,47.3 72.1,47.9ZM27.9,46.5Q28.2,47.3 27.5,47.9L21.9,52.5Q21.2,53.1 21,52.2L20.2,48.6Q20,47.8 20.1,46.9L20.4,41.7Q20.4,40.8 21.1,40.2L23.8,37.7Q24.5,37.1 25.4,37.1L27.7,37.1Q28.6,37.1 28.3,38L27.2,42.4Q26.9,43.3 27.2,44.1Z'},
+    {id:'abducteurs', d:'M53.2,109.5Q52.7,110.2 52.8,111.1L54.2,124Q54.3,124.9 54.6,124.1L59.7,111Q60,110.2 60.2,109.3L61.9,100.9Q62,100 62.4,99.2L64.5,95.1Q64.9,94.3 64,94L60.9,92.9Q60,92.7 59.8,93.5L57,103.6Q56.7,104.5 56.2,105.2ZM47.2,109.9Q47.8,110.6 47.6,111.5L45.1,124.4Q44.9,125.3 44.6,124.4L42.3,116.8Q42,115.9 41.6,115.1L40.9,113.8Q40.4,113.1 40.3,112.2L39.7,108.2Q39.6,107.3 39.3,106.5L38.2,103.3Q38,102.4 37.6,101.6L35,94.7Q34.7,93.9 35.5,93.6L38.7,92.5Q39.6,92.2 39.8,93.1L41.4,98.3Q41.6,99.2 41.9,100L43.4,104.5Q43.7,105.3 44.2,106Z'},
+    {id:'quadriceps', d:'M34.2,98Q34.7,98.8 34.9,99.6L36.9,107.3Q37.1,108.2 37.1,109.1L37.1,126.9Q37.1,127.8 36.9,128.6L34.5,136.3Q34.3,137.1 33.8,136.4L31.5,133.4Q31,132.7 30.9,131.8L29.5,120.9Q29.4,120 29.3,119.1L28.3,112.3Q28.2,111.4 28.3,110.5L29.3,101.7Q29.4,100.8 29.8,100L31.9,95.5Q32.2,94.7 32.7,95.5ZM63.1,106.6Q63.3,105.7 63.5,104.8L64.3,100.9Q64.5,100 64.9,99.2L66.6,95.5Q66.9,94.7 67.3,95.5L69.8,100.4Q70.2,101.2 70.3,102.1L71,110.9Q71,111.8 70.9,112.7L68.3,132.2Q68.2,133.1 67.7,133.8L65.8,136.8Q65.3,137.6 65,136.7L62.7,129.4Q62.4,128.6 62.4,127.7L62.1,112.3Q62,111.4 62.2,110.5ZM38.5,130.2Q38.8,129.4 38.8,128.5L38.4,113.1Q38.4,112.2 38.7,113.1L40.8,117.6Q41.2,118.4 41.5,119.2L44.2,128.5Q44.5,129.4 44.2,130.3L43.1,134.2Q42.9,135.1 42.6,136L40.2,145.3Q40,146.1 39.1,146.2L37.2,146.4Q36.3,146.5 36.2,145.6L35.6,140.9Q35.5,140 35.8,139.1ZM60.5,145.9Q59.6,145.7 59.4,144.8L55.7,129.9Q55.5,129 55.8,128.1L60.5,114.7Q60.8,113.9 60.8,114.8L61.2,129.3Q61.2,130.2 61.5,131.1L63.8,138.7Q64.1,139.6 63.9,140.5L63,145.6Q62.9,146.5 62,146.3ZM32.2,137.6Q32.7,138.4 32.1,139.1L27.1,145Q26.5,145.7 26.4,144.8L25.8,137.6Q25.7,136.7 25.7,135.8L25.7,128.2Q25.7,127.3 25.8,126.5L26.9,115.2Q26.9,114.3 27.1,115.2L29.3,132.6Q29.4,133.5 29.9,134.2ZM71.8,114Q71.8,113.1 72,113.9L73.7,123.2Q73.9,124.1 73.9,125L73.9,139.5Q73.9,140.4 73.7,141.3L72.9,144.8Q72.7,145.7 72.1,145L67.1,139.1Q66.5,138.4 67.1,137.6L69.7,134.2Q70.2,133.5 70.3,132.6Z'},
+    {id:'mollets', d:'M71.5,161.3Q71.4,160.4 71.7,159.5L73.2,154.3Q73.5,153.5 73.8,154.3L76.4,160.4Q76.7,161.2 77.1,162L79.2,166.9Q79.6,167.8 79.5,168.7L78.4,186.9Q78.4,187.8 78.5,188.6L79.5,194.6Q79.6,195.5 78.7,195.5L75.6,195.5Q74.7,195.5 74.6,194.6ZM24,194.9Q24.9,194.7 25,193.8L27.7,165.8Q27.8,164.9 27.8,164L28.1,161.3Q28.2,160.4 27.9,159.6L26.4,155.1Q26.1,154.3 25.8,155.1L25.2,156.7Q24.9,157.6 24.4,158.3L22.9,160.9Q22.4,161.6 22.2,162.5L21,166.9Q20.8,167.8 20.9,168.7L22,187.3Q22,188.2 21.9,189.1L21,194.6Q20.8,195.5 21.7,195.3ZM72.3,194.3Q72.7,195.1 72.6,194.2L69.9,160.1Q69.8,159.2 68.9,159L66.2,158.5Q65.3,158.4 65,159.2L64.3,161.6Q64.1,162.4 64.1,163.3L64.1,164.4Q64.1,165.3 64.2,166.2L65.6,176.3Q65.7,177.1 66,178ZM34.6,158.4Q35.5,158.4 35.6,159.3L35.8,161.6Q35.9,162.4 35.9,163.3L35.9,166Q35.9,166.9 35.8,167.8L35.2,171.4Q35.1,172.2 35.1,173.1L35.1,175.8Q35.1,176.7 34.7,177.5L32.7,181.2Q32.2,182 32,182.9L30.9,186.5Q30.6,187.3 30.2,188.2L27.3,193.9Q26.9,194.7 27,193.8L27.3,188.7Q27.3,187.8 27.4,186.9L28.1,181.3Q28.2,180.4 28.2,179.5L28.5,176.4Q28.6,175.5 28.6,174.6L28.9,170.7Q29,169.8 29.1,168.9L29.7,165Q29.8,164.1 29.9,163.2L30.1,159.7Q30.2,158.8 31.1,158.7Z'},
+    {id:'avant-bras', d:'M5.7,89.4Q6.1,88.6 6.4,87.7L9.9,76Q10.2,75.1 10.8,74.4L14.1,70.9Q14.7,70.2 15,71L16,73.5Q16.3,74.3 17.2,74L18.3,73.7Q19.2,73.5 18.7,74.2L5,96.8Q4.5,97.6 3.7,98L0.8,99.6Q0,100 0.4,99.2ZM85.1,70.5Q84.5,69.8 84.2,70.6L83.5,72.6Q83.3,73.5 82.4,73.4L80.9,73.2Q80,73.1 80.5,73.8L94.6,97.6Q95.1,98.4 95.9,98.7L99.2,100.1Q100,100.4 99.5,99.6L93.9,90.2Q93.5,89.4 93.2,88.5L90,77.2Q89.8,76.3 89.2,75.6ZM78,73Q77.6,72.2 77.6,73.1L77.6,76.7Q77.6,77.6 77.9,78.4L80,83.3Q80.4,84.1 81,84.8L84.7,89.1Q85.3,89.8 85.8,90.6L91.8,100.5Q92.2,101.2 93,100.7L93.9,100.1Q94.7,99.6 94.2,98.8ZM6.4,100.5Q6.9,101.2 7.4,100.5L13,91.4Q13.5,90.6 14,89.9L18.2,84.8Q18.8,84.1 19.1,83.2L21.3,78Q21.6,77.1 21.6,76.2L21.3,72.7Q21.2,71.8 20.8,72.6L5.4,98Q4.9,98.8 5.5,99.5Z'}
   ],
   back: [
-    {id:'epaules', shape:'ellipse', cx:56, cy:64, rx:16, ry:14},
-    {id:'epaules', shape:'ellipse', cx:144, cy:64, rx:16, ry:14},
-    {id:'dos', shape:'polygon', points:'72,60 128,60 122,150 78,150'},
-    {id:'lombaires', shape:'polygon', points:'82,150 118,150 114,178 86,178'},
-    {id:'triceps', shape:'ellipse', cx:55, cy:100, rx:11, ry:28},
-    {id:'triceps', shape:'ellipse', cx:145, cy:100, rx:11, ry:28},
-    {id:'fessiers', shape:'polygon', points:'70,206 130,206 126,240 74,240'},
-    {id:'ischio', shape:'polygon', points:'74,240 126,240 122,300 78,300'},
-    {id:'mollets', shape:'polygon', points:'70,300 96,300 92,390 74,390'},
-    {id:'mollets', shape:'polygon', points:'104,300 130,300 126,390 108,390'}
+    {id:'dos', d:'M44.5,22.6Q44.7,21.7 45.6,21.7L46.8,21.7Q47.7,21.7 47.6,22.6L47.3,37.4Q47.2,38.3 47.2,39.2L47.6,63.8Q47.7,64.7 47.1,64L38.9,53.9Q38.3,53.2 38.1,52.3L35.5,41.7Q35.3,40.9 34.7,40.2L31.7,37.2Q31.1,36.6 31.9,36.2L38.3,33.5Q39.1,33.2 39.7,32.5L43.3,27.9Q43.8,27.2 44,26.3ZM52.4,22.6Q52.3,21.7 53.2,21.7L54.8,21.7Q55.7,21.7 55.9,22.6L56.5,26.3Q56.6,27.2 57.1,27.9L60.3,32.1Q60.9,32.8 61.7,33.2L68.1,36.2Q68.9,36.6 68.3,37.2L65.3,39.8Q64.7,40.4 64.5,41.3L61.9,52.3Q61.7,53.2 61.1,53.9L52.9,64Q52.3,64.7 52.4,63.8L53.2,39.2Q53.2,38.3 53.1,37.4ZM31.7,39.4Q31.1,38.7 30.8,39.6L28.3,48.1Q28.1,48.9 28.1,49.8L28.5,54.4Q28.5,55.3 28.8,56.2L33.8,74.5Q34,75.3 34.9,75L46.4,71.3Q47.2,71.1 47.2,70.2L47.2,67.3Q47.2,66.4 46.6,65.7L37.2,54.7Q36.6,54 36.4,53.2L33.8,42.2Q33.6,41.3 33,40.6ZM68.4,39.4Q68.9,38.7 69.2,39.6L71.7,48.5Q71.9,49.4 71.9,50.3L71.5,55.3Q71.5,56.2 71.2,57L66.2,74.5Q66,75.3 65.1,75L53.6,71.3Q52.8,71.1 52.8,70.2L52.8,67.3Q52.8,66.4 53.4,65.7L62.8,55.1Q63.4,54.5 63.6,53.6L66.2,42.6Q66.4,41.7 67,41Z'},
+    {id:'epaules', d:'M29.2,37.9Q29.4,37 28.5,37.3L23.8,38.9Q23,39.1 22.3,39.8L18.1,43.6Q17.4,44.3 17.5,45.2L18.2,52.7Q18.3,53.6 19,53.1L23.5,49.9Q24.3,49.4 24.9,48.7L26.6,47Q27.2,46.4 27.4,45.5ZM71.2,37.9Q71.1,37 71.9,37.3L77.4,39.3Q78.3,39.6 78.9,40.3L82,44Q82.6,44.7 82.5,45.6L81.8,52.7Q81.7,53.6 81,53.1L75.6,49.4Q74.9,48.9 74.4,48.2L72.8,45.9Q72.3,45.1 72.2,44.2Z'},
+    {id:'triceps', d:'M26.8,50.7Q26.8,49.8 26.1,50.3L18.6,55.2Q17.9,55.7 17.7,56.6L14.6,71.5Q14.5,72.3 14.7,73.2L16.4,80.8Q16.6,81.7 16.8,80.8L21.5,64.7Q21.7,63.8 22.2,63.1L26.3,56.5Q26.8,55.7 26.8,54.8ZM73.5,51.1Q73.6,50.2 74.4,50.7L81.4,55.3Q82.1,55.7 82.3,56.6L85.8,72.3Q86,73.2 85.7,74.1L83.7,81.3Q83.4,82.1 83.2,81.3L78.1,63.8Q77.9,63 77.4,62.2L73.7,56.5Q73.2,55.7 73.3,54.8ZM26.4,59.1Q26.8,58.3 26.8,59.2L26.8,67.6Q26.8,68.5 26.4,69.3L23.4,74.5Q23,75.3 22.2,75.8L19.9,77Q19.1,77.4 19.4,76.6L22.3,66.4Q22.6,65.5 23,64.8ZM72.8,59.2Q72.8,58.3 73.3,59L76.5,63.9Q77,64.7 77.3,65.6L80.2,76.6Q80.4,77.4 79.6,77L77.4,75.8Q76.6,75.3 76.1,74.5L73.2,69.7Q72.8,68.9 72.8,68Z'},
+    {id:'lombaires', d:'M47.6,73.7Q47.7,72.8 46.8,73L35.3,76.7Q34.5,77 34.6,77.9L35.2,82.5Q35.3,83.4 35.9,84.1L48.8,101.4Q49.4,102.1 49.2,101.2L46.9,83.9Q46.8,83 46.9,82.1ZM52.4,73.7Q52.3,72.8 53.2,73L64.7,76.7Q65.5,77 65.4,77.9L64.8,82.5Q64.7,83.4 64.1,84.1L51.2,101.4Q50.6,102.1 50.8,101.2L53.1,84.7Q53.2,83.8 53.1,82.9Z'},
+    {id:'avant-bras', d:'M86.2,76.6Q86.4,75.7 86.9,76.5L90.6,82.6Q91.1,83.4 91.2,84.3L93,93.2Q93.2,94 93.6,94.8L99.6,105.6Q100,106.4 99.2,105.9L97,104.7Q96.2,104.3 95.7,103.5L88.5,90.2Q88.1,89.4 87.6,88.6L84.8,84.6Q84.3,83.8 84.5,83ZM13.9,76.6Q13.6,75.7 13.2,76.5L9.4,83.1Q8.9,83.8 8.7,84.7L7,92.7Q6.8,93.6 6.4,94.4L0.4,105.6Q0,106.4 0.8,105.9L3,104.7Q3.8,104.3 4.3,103.5L11.9,89.3Q12.3,88.5 12.8,87.7L15.3,83.7Q15.7,83 15.5,82.1ZM81.7,80.4Q81.3,79.6 80.5,79.2L78.3,78.2Q77.4,77.9 77.7,78.7L78.9,83.8Q79.1,84.7 79.6,85.4L90.6,103.1Q91.1,103.8 91.4,104.7L92.8,108.1Q93.2,108.9 93.5,108.1L94.2,105.5Q94.5,104.7 94,103.9ZM18.3,80.4Q18.7,79.6 19.5,79.2L21.3,78.3Q22.1,77.9 22,78.8L21,83.4Q20.9,84.3 20.4,85L9.8,102.2Q9.4,103 9,103.8L7.2,107.7Q6.8,108.5 6.4,107.7L5.5,105.5Q5.1,104.7 5.5,103.9Z'},
+    {id:'fessiers', d:'M44.9,100.4Q44.7,99.6 43.9,100L31,108Q30.2,108.5 30.2,109.4L29.8,117.8Q29.8,118.7 30,119.6L31.3,125.1Q31.5,126 32.4,125.7L46.4,121.5Q47.2,121.3 47.5,120.4L49.1,115.7Q49.4,114.9 49.1,114ZM56.1,99.6Q55.3,99.1 55.1,100L51.3,113.6Q51.1,114.5 51.2,115.4L52.2,120Q52.3,120.9 53.2,121.1L67.2,125.7Q68.1,126 68.3,125.1L69.6,120Q69.8,119.1 69.8,118.2L69.4,109.4Q69.4,108.5 68.6,108Z'},
+    {id:'adducteurs', d:'M48.2,123.9Q48.1,123 47.2,123L45.6,123Q44.7,123 44,123.5L42,125Q41.3,125.5 41.5,126.4L44.9,143.4Q45.1,144.3 45.4,143.4L48.2,136.6Q48.5,135.7 48.6,134.8L48.9,130.3Q48.9,129.4 48.8,128.5ZM51.8,123.4Q51.9,122.6 52.8,122.7L54.9,123.2Q55.7,123.4 56.5,123.9L58.4,125.4Q59.1,126 58.9,126.8L55.1,143.4Q54.9,144.3 54.6,143.4L52.2,137Q51.9,136.2 51.8,135.3L51.2,130.3Q51.1,129.4 51.2,128.5Z'},
+    {id:'ischio', d:'M28.8,123Q28.9,122.1 29.2,123L30.8,128.5Q31.1,129.4 31.8,128.9L35.8,126.4Q36.6,126 36.5,126.8L35.4,134.4Q35.3,135.3 35.3,136.2L34.5,149.3Q34.5,150.2 34,151L29.8,157.5Q29.4,158.3 29.3,157.4L29,147.7Q28.9,146.8 28.7,145.9L27.9,142.2Q27.7,141.3 27.6,140.4L27.3,132.4Q27.2,131.5 27.4,130.6ZM71.7,122.6Q71.5,121.7 71.2,122.6L69.6,128.1Q69.4,128.9 68.6,128.5L64.6,126.4Q63.8,126 64,126.8L65.4,135.7Q65.5,136.6 65.6,137.5L66.3,149.3Q66.4,150.2 66.8,151L70.6,157.5Q71.1,158.3 71.1,157.4L71.5,148.6Q71.5,147.7 71.7,146.8L72.6,143Q72.8,142.1 72.8,141.2L73.5,132.8Q73.6,131.9 73.4,131ZM38.6,126.4Q38.7,125.5 39,126.4L44,145.1Q44.3,146 44.1,146.8L40.6,165.9Q40.4,166.8 40.2,165.9L36.4,153.6Q36.2,152.8 36.2,151.9L37,136.2Q37,135.3 37.2,134.4ZM61.5,126.4Q61.7,125.5 61.8,126.4L63.3,135.3Q63.4,136.2 63.4,137.1L64.2,152.3Q64.3,153.2 64,154.1L60.3,165.9Q60,166.8 59.8,165.9L56.3,147.3Q56.2,146.4 56.4,145.5Z'},
+    {id:'mollets', d:'M29.7,161.3Q29.4,160.4 29.3,161.3L28.6,166.3Q28.5,167.2 28.2,168.1L24.9,178.7Q24.7,179.6 24.6,180.5L23.9,191.9Q23.8,192.8 24.2,193.6L25.2,196.2Q25.5,197 26.1,196.3L28,193.9Q28.5,193.2 28.6,192.3L29.7,180.9Q29.8,180 30,179.1L31.7,171.9Q31.9,171.1 31.9,170.2L31.9,167.7Q31.9,166.8 31.6,166ZM37.8,165.9Q37.4,165.1 36.9,165.8L35.9,167Q35.3,167.7 34.9,168.5L33.6,171.1Q33.2,171.9 33,172.8L31.3,179.6Q31.1,180.4 31,181.3L30.3,191Q30.2,191.9 30.6,192.7L33.7,199.2Q34,200 34.4,199.2L38.3,191.4Q38.7,190.6 38.7,189.7L39.1,169.8Q39.1,168.9 38.8,168.1ZM63.5,165.8Q63,165.1 62.6,165.9L61.7,167.7Q61.3,168.5 61.3,169.4L61.7,189.7Q61.7,190.6 62.1,191.4L66,198.8Q66.4,199.6 66.8,198.8L70.2,192.7Q70.6,191.9 70.5,191L69.1,180.5Q68.9,179.6 68.7,178.7L67,171.1Q66.8,170.2 66.3,169.5ZM70.4,161.3Q70.6,160.4 70.8,161.3L72.2,167.6Q72.3,168.5 72.6,169.4L75.5,178.3Q75.7,179.1 75.8,180L76.5,191.9Q76.6,192.8 76.2,193.6L74.9,195.8Q74.5,196.6 73.9,195.9L72.9,194.3Q72.3,193.6 72.2,192.7L70.7,180.5Q70.6,179.6 70.4,178.7L68.3,169Q68.1,168.1 68.4,167.2Z'}
   ]
 };
 
@@ -2823,17 +2849,27 @@ function renderDashboard(){
         <div class="section-title" style="margin-bottom:0;">Carte de chaleur musculaire</div>
       </div>
       <div class="heatmap-wrap" id="heatmap-wrap">
-        <div class="heatmap-bodies">
-          <div class="heatmap-body-col">
-            <div class="heatmap-label">Face</div>
-            <svg id="heatmap-front" viewBox="0 0 200 420"></svg>
+        <div class="heatmap-left">
+          <div class="seg-group heatmap-toggle" id="heatmap-toggle" role="group" aria-label="Vue affichée">
+            <button type="button" class="seg-btn active" data-hm-view="both" aria-pressed="true">Face + dos</button>
+            <button type="button" class="seg-btn" data-hm-view="front" aria-pressed="false">Face</button>
+            <button type="button" class="seg-btn" data-hm-view="back" aria-pressed="false">Dos</button>
           </div>
-          <div class="heatmap-body-col">
-            <div class="heatmap-label">Dos</div>
-            <svg id="heatmap-back" viewBox="0 0 200 420"></svg>
+          <div class="heatmap-bodies" id="heatmap-bodies" data-view="both">
+            <div class="heatmap-body-col">
+              <div class="heatmap-label">Face</div>
+              <svg id="heatmap-front" viewBox="0 0 100 200" role="img" aria-label="Carte de chaleur musculaire, vue de face"></svg>
+            </div>
+            <div class="heatmap-body-col">
+              <div class="heatmap-label">Dos</div>
+              <svg id="heatmap-back" viewBox="0 0 100 200" role="img" aria-label="Carte de chaleur musculaire, vue de dos"></svg>
+            </div>
           </div>
+          <div class="heatmap-detail" id="heatmap-detail" aria-live="polite"></div>
+          <div class="heatmap-scale" id="heatmap-scale" hidden></div>
         </div>
         <div class="heatmap-legend" id="heatmap-legend"></div>
+        <div class="heatmap-tip" id="heatmap-tip" hidden></div>
       </div>
     </div>
 
@@ -3155,9 +3191,143 @@ function renderMuscleChart(range){
     options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ color:COLORS.muted, boxWidth:10, font:{size:11} } } } }
   });
 }
+/* Échelle de couleur de la carte de chaleur : 5 paliers (repos → faible → moyen → élevé → très élevé),
+   dérivés de la couleur d'accent du profil actif (lue sur <body>, où applyUserTheme() la pose). */
+function mixHex(a, b, t){
+  const A = hexToRgb(a), B = hexToRgb(b);
+  return '#' + A.map((v,i)=> Math.round(v + (B[i]-v)*t).toString(16).padStart(2,'0')).join('');
+}
+function heatStops(){
+  const cs = getComputedStyle(document.body);
+  const hex = (name, fallback)=>{ const v = cs.getPropertyValue(name).trim(); return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback; };
+  const accent = hex('--accent', USER_COLOR_POOL[0]);
+  const hover = hex('--accent-hover', shadeColor(accent, 0.18));
+  return [hex('--surface-3', COLORS.border), hex('--accent-dim', shadeColor(accent, -0.42)), accent, hover, shadeColor(hover, 0.35)];
+}
+function heatColor(t, stops){
+  t = Math.max(0, Math.min(1, t));
+  const x = t*(stops.length-1), i = Math.min(stops.length-2, Math.floor(x));
+  return mixHex(stops[i], stops[i+1], x-i);
+}
+/* Niveau 0..1 d'un volume : 0 = aucun volume, sinon racine carrée pour que les volumes moyens restent visibles. */
+function heatLevel(val, max){
+  if(!val || val<=0.01) return 0;
+  return 0.12 + 0.88*Math.sqrt(val/max);
+}
+/* Interactions (étape 3) : un seul état partagé entre le corps et la légende.
+   hover = muscle survolé (souris), selected = muscle choisi (clic / toucher), data = volumes de la dernière période rendue. */
+const heatmapUI = { hover:null, selected:null, view:'both', data:null, tipOn:false };
+function heatKg(v){ return Math.round(v).toLocaleString('fr-FR') + '\u00A0kg'; }
+function heatPct(p){ return (p>0 && p<1 ? '< 1' : String(Math.round(p))) + '\u00A0%'; }
+function heatmapInfo(id){
+  const d = heatmapUI.data; if(!d) return null;
+  const val = d.totals[id]||0;
+  return { id, label: muscleInfo(id).label, val, pct: d.grand>0 ? val/d.grand*100 : 0, rank: d.rank[id]||0, color: heatColor(heatLevel(val, d.max), d.stops) };
+}
+function heatmapSyncClasses(){
+  const wrap = document.getElementById('heatmap-wrap'); if(!wrap) return;
+  wrap.classList.toggle('has-focus', !!(heatmapUI.hover || heatmapUI.selected));
+  wrap.querySelectorAll('[data-muscle]').forEach(n=>{
+    const id = n.dataset.muscle;
+    n.classList.toggle('is-active', id===heatmapUI.hover);
+    n.classList.toggle('is-selected', id===heatmapUI.selected);
+    if(n.tagName==='BUTTON') n.setAttribute('aria-pressed', id===heatmapUI.selected ? 'true' : 'false');
+  });
+}
+function heatmapApplyView(){
+  const bodies = document.getElementById('heatmap-bodies');
+  if(bodies) bodies.dataset.view = heatmapUI.view;
+  document.querySelectorAll('#heatmap-toggle .seg-btn').forEach(b=>{
+    const on = b.dataset.hmView === heatmapUI.view;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+function heatmapRenderDetail(){
+  const el = document.getElementById('heatmap-detail'); if(!el) return;
+  const info = heatmapUI.selected ? heatmapInfo(heatmapUI.selected) : null;
+  if(!info){ el.innerHTML = '<span>Touchez ou cliquez un muscle pour voir son détail.</span>'; return; }
+  const sub = info.val>0.01
+    ? `${heatKg(info.val)} · ${heatPct(info.pct)} du volume · ${info.rank===1 ? '1er' : info.rank+'ᵉ'}`
+    : 'Aucun volume sur la période';
+  el.innerHTML = `<span class="dot" style="background:${info.color};"></span><div><b>${escapeHtml(info.label)}</b><div class="sub">${sub}</div></div>`;
+}
+function heatmapMoveTip(e){
+  const wrap = document.getElementById('heatmap-wrap'), tip = document.getElementById('heatmap-tip');
+  if(!wrap || !tip) return;
+  const r = wrap.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX - r.left + 14, y = e.clientY - r.top + 16;
+  if(x + w > r.width) x = e.clientX - r.left - w - 14;
+  if(y + h > r.height) y = e.clientY - r.top - h - 12;
+  tip.style.transform = `translate(${Math.max(0,x)}px,${Math.max(0,y)}px)`;
+}
+function heatmapShowTip(id, e){
+  const tip = document.getElementById('heatmap-tip'), info = heatmapInfo(id);
+  if(!tip || !info) return;
+  tip.innerHTML = `<div class="hm-tip-name"><i style="background:${info.color};"></i>${escapeHtml(info.label)}</div>
+    <div class="hm-tip-val">${info.val>0.01 ? heatKg(info.val)+' · '+heatPct(info.pct) : 'Aucun volume'}</div>`;
+  tip.hidden = false; heatmapUI.tipOn = true;
+  heatmapMoveTip(e);
+}
+function heatmapHideTip(){
+  const tip = document.getElementById('heatmap-tip');
+  if(tip) tip.hidden = true;
+  heatmapUI.tipOn = false;
+}
+/* Écouteurs délégués sur #heatmap-wrap (posés une seule fois par élément : la carte est reconstruite avec l'onglet). */
+function heatmapBind(){
+  const wrap = document.getElementById('heatmap-wrap');
+  if(!wrap || wrap.dataset.bound === '1') return;
+  wrap.dataset.bound = '1';
+  heatmapUI.hover = null; heatmapUI.tipOn = false;
+  const muscleOf = n => (n && n.closest) ? n.closest('[data-muscle]') : null;
+  wrap.addEventListener('pointerover', e=>{
+    if(e.pointerType === 'touch') return;
+    const t = muscleOf(e.target); if(!t) return;
+    heatmapUI.hover = t.dataset.muscle; heatmapSyncClasses();
+    if(t.closest('.heatmap-regions')) heatmapShowTip(t.dataset.muscle, e); else heatmapHideTip();
+  });
+  wrap.addEventListener('pointermove', e=>{ if(e.pointerType !== 'touch' && heatmapUI.tipOn) heatmapMoveTip(e); });
+  wrap.addEventListener('pointerout', e=>{
+    if(e.pointerType === 'touch') return;
+    const t = muscleOf(e.target); if(!t) return;
+    if(muscleOf(e.relatedTarget) === t) return;
+    heatmapUI.hover = null; heatmapHideTip(); heatmapSyncClasses();
+  });
+  wrap.addEventListener('keydown', e=>{
+    if(e.key === 'Escape' && heatmapUI.selected){ heatmapUI.selected = null; heatmapSyncClasses(); heatmapRenderDetail(); }
+  });
+  wrap.addEventListener('click', e=>{
+    const v = e.target.closest ? e.target.closest('[data-hm-view]') : null;
+    if(v){ heatmapUI.view = v.dataset.hmView; heatmapApplyView(); return; }
+    const t = muscleOf(e.target);
+    if(!t && !(e.target.closest && e.target.closest('.heatmap-bodies'))) return;
+    const id = t ? t.dataset.muscle : null;
+    heatmapUI.selected = (id && id !== heatmapUI.selected) ? id : null;
+    heatmapSyncClasses(); heatmapRenderDetail();
+  });
+}
+/* Barre d'échelle : dégradé = couleurs réellement présentes sur le corps (du plus petit volume travaillé au plus grand),
+   avec valeurs min / milieu / max en kg de la période, et une pastille « Repos » pour le volume nul. */
+function heatmapRenderScale(vals, max, stops){
+  const el = document.getElementById('heatmap-scale'); if(!el) return;
+  if(!vals.length){ el.hidden = true; el.innerHTML = ''; return; }
+  const lo = Math.min(...vals), l0 = heatLevel(lo, max), n = 8;
+  const colors = Array.from({length:n}, (_,i)=> heatColor(l0 + (1-l0)*i/(n-1), stops));
+  const lvlToVal = l => max * Math.pow(Math.max(0, (l-0.12)/0.88), 2);
+  const mid = lvlToVal((l0+1)/2), hasMid = (max-lo) > 1;
+  el.hidden = false;
+  el.setAttribute('role', 'img');
+  el.setAttribute('aria-label', `Échelle de couleur : de ${heatKg(lo)} (peu) à ${heatKg(max)} (beaucoup), repos = aucun volume`);
+  el.innerHTML = `<span>Repos</span><div class="hm-sc-labels"><span>Peu</span><span>Beaucoup</span></div>
+    <span class="hm-sc-zero" style="background:${heatColor(0, stops)};"></span>
+    <span class="hm-sc-bar" style="background:linear-gradient(90deg,${colors.join(',')});"></span>
+    <span class="mono">0</span><div class="hm-sc-vals" style="${(max-lo)>1 ? '' : 'justify-content:flex-end;'}">${(max-lo)>1 ? `<span>${heatKg(lo)}</span>${hasMid ? `<span>${heatKg(mid)}</span>` : ''}` : ''}<span>${heatKg(max)}</span></div>`;
+}
 /* Widget "Carte de chaleur musculaire" : colore les zones du corps (face + dos) selon le volume
    fait sur chaque groupe musculaire pendant la période analysée. Réutilise getMuscleVolumeDistribution
-   (déjà calculé pour le doughnut "Répartition du volume"), donc reste toujours cohérent avec lui. */
+   (déjà calculé pour le doughnut "Répartition du volume"), donc reste toujours cohérent avec lui.
+   Les SVG sont construits une seule fois puis seulement mis à jour : les couleurs changent en transition. */
 function renderMuscleHeatmap(range){
   const frontEl = document.getElementById('heatmap-front');
   const backEl = document.getElementById('heatmap-back');
@@ -3167,41 +3337,57 @@ function renderMuscleHeatmap(range){
   const totals = getMuscleVolumeDistribution(range);
   const localizable = MUSCLE_GROUPS.filter(m=>m.id!=='autre');
   const max = Math.max(1, ...localizable.map(m=>totals[m.id]||0));
-
-  function regionOpacity(val){
-    if(!val || val<=0.01) return 0.06;
-    const t = Math.sqrt(val/max); // racine carrée pour que les volumes moyens restent visibles
-    return 0.16 + t*0.74;
-  }
-  function regionsSvg(list){
-    return list.map(r=>{
-      const val = totals[r.id]||0;
-      const info = muscleInfo(r.id);
-      const op = regionOpacity(val).toFixed(3);
-      const titleTxt = `${escapeHtml(info.label)} : ${Math.round(val).toLocaleString('fr-FR')} kg`;
-      const attrs = `data-muscle="${r.id}" fill="var(--accent)" fill-opacity="${op}" stroke="var(--border)" stroke-width="1"`;
-      if(r.shape==='ellipse'){
-        return `<ellipse cx="${r.cx}" cy="${r.cy}" rx="${r.rx}" ry="${r.ry}" ${attrs}><title>${titleTxt}</title></ellipse>`;
-      }
-      return `<polygon points="${r.points}" ${attrs}><title>${titleTxt}</title></polygon>`;
-    }).join('');
-  }
-
-  const outlineAttrs = 'fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.5"';
-  frontEl.innerHTML = `<g ${outlineAttrs}>${BODY_OUTLINE_SVG}</g><g class="heatmap-regions">${regionsSvg(BODY_REGIONS.front)}</g>`;
-  backEl.innerHTML = `<g ${outlineAttrs}>${BODY_OUTLINE_SVG}</g><g class="heatmap-regions">${regionsSvg(BODY_REGIONS.back)}</g>`;
+  const stops = heatStops();
+  const grand = MUSCLE_GROUPS.reduce((sum,m)=> sum + (totals[m.id]||0), 0);
 
   const entries = localizable.map(m=>({...m, val: totals[m.id]||0})).sort((a,b)=>b.val-a.val);
+  const rank = {}; entries.forEach((e,i)=>{ rank[e.id] = i+1; });
+  heatmapUI.data = { totals, grand, max, stops, rank };
+
+  function buildSvg(el, view){
+    if(el.dataset.built === '1') return;
+    const all = BODY_REGIONS[view].map(r=>r.d).join('') + BODY_NEUTRAL[view];
+    const shade = `heat-shade-${view}`;
+    // Fond du corps : toutes les zones épaissies d'un trait gris, pour que les interstices se lisent comme un seul corps.
+    // Dégradé d'ombrage (lumière en haut, ombre en bas) superposé aux muscles pour donner du volume.
+    el.innerHTML = `<defs><linearGradient id="${shade}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="200">
+        <stop offset="0" stop-color="${COLORS.text}" stop-opacity="0.16"/><stop offset="0.45" stop-color="${COLORS.text}" stop-opacity="0"/><stop offset="1" stop-color="${COLORS.bg}" stop-opacity="0.28"/></linearGradient></defs>
+      <g fill="var(--surface-2)" stroke="var(--surface-2)" stroke-width="2.2" stroke-linejoin="round"><path d="${all}"/></g>
+      <g fill="var(--surface-3)" stroke="var(--border)" stroke-width="0.35" stroke-linejoin="round"><path d="${BODY_NEUTRAL[view]}"/></g>
+      <g class="heatmap-regions">${BODY_REGIONS[view].map(r=>`<g data-muscle="${r.id}"><path d="${r.d}"/><path class="heat-shade" d="${r.d}" fill="url(#${shade})"/></g>`).join('')}</g>`;
+    el.dataset.built = '1';
+  }
+  function paint(el){
+    el.querySelectorAll('.heatmap-regions [data-muscle]').forEach(g=>{
+      const id = g.dataset.muscle, val = totals[id]||0;
+      const fill = heatColor(heatLevel(val, max), stops);
+      g.style.setProperty('--hm-fill', fill);
+      g.style.setProperty('--hm-stroke', val>0.01 ? shadeColor(fill, -0.5) : COLORS.border);
+      g.setAttribute('aria-label', `${muscleInfo(id).label} : ${Math.round(val).toLocaleString('fr-FR')} kg`);
+    });
+  }
+  buildSvg(frontEl, 'front'); buildSvg(backEl, 'back');
+  paint(frontEl); paint(backEl);
+  [[frontEl,'de face'],[backEl,'de dos']].forEach(([el,txt])=>{
+    const ids = new Set([...el.querySelectorAll('.heatmap-regions [data-muscle]')].map(g=>g.dataset.muscle));
+    const top = entries.filter(e=>ids.has(e.id) && e.val>0.01).slice(0,3).map(e=>`${e.label} ${Math.round(e.val).toLocaleString('fr-FR')} kg`);
+    el.setAttribute('aria-label', `Carte de chaleur musculaire, vue ${txt}. ` + (top.length ? 'Les plus travaillés : ' + top.join(', ') + '. Détail complet dans la liste.' : 'Aucun volume sur la période.'));
+  });
+  heatmapHideTip();
+
   const autreVal = totals['autre']||0;
   legendEl.innerHTML = entries.map(e=>{
-    const dotOp = e.val>0.01 ? regionOpacity(e.val).toFixed(2) : 0.15;
-    return `<div class="heatmap-legend-row">
-      <span class="dot" style="opacity:${dotOp};"></span>
-      <span class="name" style="color:${e.val>0.01?'var(--text)':'var(--muted-2)'};">${escapeHtml(e.label)}</span>
+    const color = heatColor(heatLevel(e.val, max), stops);
+    const w = e.val>0.01 ? Math.max(2, Math.round(e.val/max*100)) : 0;
+    return `<button type="button" class="heatmap-legend-row" data-muscle="${e.id}" aria-pressed="false">
+      <span class="dot" style="background:${color};"></span>
+      <span class="name" style="color:${e.val>0.01?'var(--text)':'var(--muted)'};">${escapeHtml(e.label)}</span>
       <span class="val mono">${Math.round(e.val).toLocaleString('fr-FR')} kg</span>
-    </div>`;
+      <span class="bar"><i style="width:${w}%;background:${color};"></i></span>
+    </button>`;
   }).join('') + (autreVal>0.01 ? `
-    <div class="heatmap-legend-row" style="margin-top:4px;padding-top:8px;border-top:1px solid var(--border);">
+    <div class="heatmap-legend-row static" style="margin-top:4px;padding-top:8px;border-top:1px solid var(--border);border-radius:0;">
+      <span></span>
       <span class="name" style="color:var(--muted);">Autre (non localisé sur le corps)</span>
       <span class="val mono">${Math.round(autreVal).toLocaleString('fr-FR')} kg</span>
     </div>` : '');
@@ -3209,6 +3395,12 @@ function renderMuscleHeatmap(range){
   if(entries.every(e=>e.val<=0.01) && autreVal<=0.01){
     legendEl.innerHTML = `<div style="color:var(--muted-2);font-size:12.5px;">Aucune séance sur cette période.</div>` + legendEl.innerHTML;
   }
+
+  heatmapRenderScale(entries.map(e=>e.val).filter(v=>v>0.01), max, stops);
+  heatmapBind();
+  heatmapApplyView();
+  heatmapSyncClasses();
+  heatmapRenderDetail();
 }
 function renderVolumeTrendChart(range){
   const wrapEl = document.getElementById('volume-trend-wrap');
