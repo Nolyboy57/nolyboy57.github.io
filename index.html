@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.16
+version: 5.17
 terminé: (rien)
 en cours: (rien)
 prochaine: (rien)
@@ -10,7 +10,7 @@ notes (ne garder que ce qui sert aux futures modifications) :
 - Fichier unique, sans build. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
 - Couleurs : jamais en dur ; COLORS + USER_COLOR_POOL, variables CSS (--accent, --surface…). Ne pas renommer ids HTML, fonctions ni clés de stockage ; stockage via readStored/writeStored.
 - Éditeur : le champ caché [data-entry-exercise] est la source de vérité de l'exercice ; la liste de variante n'existe que si l'exercice a des variantes ; persistSessionEditor relit le DOM. Séance validée = lecture seule.
-- Carte de chaleur : état partagé dans heatmapUI ; interactions déléguées (pointer events + click) sur #heatmap-wrap ; zones du corps et lignes de légende portent data-muscle ; classes is-active (survol) / is-selected (clic). Ids HTML heatmap-front/back/legend/wrap/card conservés (ajouts : heatmap-bodies, heatmap-toggle, heatmap-scale, heatmap-detail, heatmap-tip).
+- Carte de chaleur : état partagé dans heatmapUI ; interactions déléguées (pointer events + click) sur #heatmap-wrap ; zones du corps et lignes de légende portent data-muscle ; classes is-active (survol) / is-selected (clic). Ids HTML heatmap-front/back/legend/wrap/card conservés (ajouts : heatmap-bodies, heatmap-scale, heatmap-detail, heatmap-tip).
 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -316,7 +316,6 @@ th[data-sort]:hover{color:var(--text);}
 
 .heatmap-wrap{position:relative;display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;}
 .heatmap-left{display:flex;flex-direction:column;gap:12px;max-width:100%;min-width:0;}
-.heatmap-toggle{display:none;}
 .heatmap-bodies{display:flex;gap:20px;justify-content:center;}
 .heatmap-body-col{text-align:center;}
 .heatmap-body-col .heatmap-label{font-family:var(--font-mono);font-size:10.5px;letter-spacing:0.06em;color:var(--muted-2);text-transform:uppercase;margin-bottom:6px;}
@@ -358,13 +357,7 @@ th[data-sort]:hover{color:var(--text);}
   .heatmap-wrap{gap:14px;}
   .heatmap-body-col svg{width:140px;}
 }
-/* Petits écrans : bascule Face / Dos (en plus de l'affichage côte à côte) */
 @media(max-width:600px){
-  .heatmap-toggle{display:flex;width:fit-content;align-self:center;}
-  .heatmap-toggle .seg-btn{min-height:44px;}
-  .heatmap-bodies[data-view="front"] .heatmap-body-col:last-child,
-  .heatmap-bodies[data-view="back"] .heatmap-body-col:first-child{display:none;}
-  .heatmap-bodies[data-view="front"] svg,.heatmap-bodies[data-view="back"] svg{width:min(220px,62vw);}
   .heatmap-legend-row{min-height:44px;}
 }
 @media(prefers-reduced-motion:reduce){
@@ -2850,12 +2843,7 @@ function renderDashboard(){
       </div>
       <div class="heatmap-wrap" id="heatmap-wrap">
         <div class="heatmap-left">
-          <div class="seg-group heatmap-toggle" id="heatmap-toggle" role="group" aria-label="Vue affichée">
-            <button type="button" class="seg-btn active" data-hm-view="both" aria-pressed="true">Face + dos</button>
-            <button type="button" class="seg-btn" data-hm-view="front" aria-pressed="false">Face</button>
-            <button type="button" class="seg-btn" data-hm-view="back" aria-pressed="false">Dos</button>
-          </div>
-          <div class="heatmap-bodies" id="heatmap-bodies" data-view="both">
+          <div class="heatmap-bodies" id="heatmap-bodies">
             <div class="heatmap-body-col">
               <div class="heatmap-label">Face</div>
               <svg id="heatmap-front" viewBox="0 0 100 200" role="img" aria-label="Carte de chaleur musculaire, vue de face"></svg>
@@ -3216,7 +3204,7 @@ function heatLevel(val, max){
 }
 /* Interactions (étape 3) : un seul état partagé entre le corps et la légende.
    hover = muscle survolé (souris), selected = muscle choisi (clic / toucher), data = volumes de la dernière période rendue. */
-const heatmapUI = { hover:null, selected:null, view:'both', data:null, tipOn:false };
+const heatmapUI = { hover:null, selected:null, data:null, tipOn:false };
 function heatKg(v){ return Math.round(v).toLocaleString('fr-FR') + '\u00A0kg'; }
 function heatPct(p){ return (p>0 && p<1 ? '< 1' : String(Math.round(p))) + '\u00A0%'; }
 function heatmapInfo(id){
@@ -3232,15 +3220,6 @@ function heatmapSyncClasses(){
     n.classList.toggle('is-active', id===heatmapUI.hover);
     n.classList.toggle('is-selected', id===heatmapUI.selected);
     if(n.tagName==='BUTTON') n.setAttribute('aria-pressed', id===heatmapUI.selected ? 'true' : 'false');
-  });
-}
-function heatmapApplyView(){
-  const bodies = document.getElementById('heatmap-bodies');
-  if(bodies) bodies.dataset.view = heatmapUI.view;
-  document.querySelectorAll('#heatmap-toggle .seg-btn').forEach(b=>{
-    const on = b.dataset.hmView === heatmapUI.view;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
 }
 function heatmapRenderDetail(){
@@ -3298,8 +3277,6 @@ function heatmapBind(){
     if(e.key === 'Escape' && heatmapUI.selected){ heatmapUI.selected = null; heatmapSyncClasses(); heatmapRenderDetail(); }
   });
   wrap.addEventListener('click', e=>{
-    const v = e.target.closest ? e.target.closest('[data-hm-view]') : null;
-    if(v){ heatmapUI.view = v.dataset.hmView; heatmapApplyView(); return; }
     const t = muscleOf(e.target);
     if(!t && !(e.target.closest && e.target.closest('.heatmap-bodies'))) return;
     const id = t ? t.dataset.muscle : null;
@@ -3398,7 +3375,6 @@ function renderMuscleHeatmap(range){
 
   heatmapRenderScale(entries.map(e=>e.val).filter(v=>v>0.01), max, stops);
   heatmapBind();
-  heatmapApplyView();
   heatmapSyncClasses();
   heatmapRenderDetail();
 }
