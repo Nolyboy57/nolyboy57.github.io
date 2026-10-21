@@ -2,9 +2,9 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.17
+version: 5.15
 terminé: (rien)
-en cours: (rien)
+refonte Statistiques v5.15 terminée (10 étapes : libellés, Forme retiré, widgets Séances/Volume/Temps/Calories avec moyenne par semaine et max/min, graphiques réordonnés, Comparer aligné)
 prochaine: (rien)
 notes (ne garder que ce qui sert aux futures modifications) :
 - Fichier unique, sans build. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
@@ -200,7 +200,7 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
   box-shadow:0 1px 3px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.01) inset;
   transition:border-color .15s;
 }
-.stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:20px;}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
 .stat-group{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.18);}
 .stat-group.accent{border-color:rgba(var(--accent-rgb),0.35);}
 .stat-group-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-2);font-weight:600;margin-bottom:10px;}
@@ -208,8 +208,13 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .stat-group-item{flex:1;min-width:0;}
 .stat-group-item .value{font-family:var(--font-mono);font-size:21px;font-weight:700;line-height:1.15;}
 .stat-group-item .sub{font-size:11px;color:var(--muted);margin-top:3px;}
+.stat-group-row + .stat-group-row{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+.stat-group-item.clickable{cursor:pointer;}
+.stat-group-item .sub .session-badge{vertical-align:middle;margin-top:2px;}
+.cmp-ext-meta{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-family:inherit;font-size:10.5px;font-weight:400;color:var(--muted);margin-top:4px;white-space:normal;}
+.cmp-vs-val.has-meta{white-space:normal;overflow:visible;}
 .stat-group-divider{width:1px;background:var(--border);margin:0 14px;flex-shrink:0;}
-@media(max-width:1100px){.stat-grid{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:1100px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
 @media(max-width:640px){.stat-grid{grid-template-columns:repeat(2,1fr);} .stat-group-row{flex-direction:column;gap:8px;} .stat-group-divider{display:none;}}
 
 .grid-2{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
@@ -2041,6 +2046,57 @@ function computeKPIs(range){
   const volume = sessions.reduce((a,s)=>a+sessionVolume(s),0);
   return { count: sessions.length, volume, avgVolume: sessions.length ? volume/sessions.length : 0 };
 }
+/* Moyenne de séances par semaine sur les filtres actifs : période entière du filtre (jusqu'à aujourd'hui si elle est ouverte),
+   minimum 1 semaine ; « Tout » = de la première séance à aujourd'hui. */
+function computeSessionsPerWeek(range){
+  range = range || {};
+  const n = sessionsInRange(range).length;
+  if(!n) return null;
+  let from = range.from;
+  if(!from) from = state.sessions.reduce((m,x)=> x.date<m ? x.date : m, state.sessions[0].date);
+  const to = range.to || todayISO();
+  const days = Math.round((new Date(to+'T00:00:00') - new Date(from+'T00:00:00'))/86400000) + 1;
+  return n / Math.max(1, days/7);
+}
+/* Max et min d'une métrique ('volume' | 'duration' | 'kcal') sur les séances des filtres actifs.
+   Les valeurs à 0 (séance créée mais non remplie) sont ignorées ; égalité = séance la plus récente. */
+function computeExtremes(range, metric){
+  const get = x => metric==='volume' ? sessionVolume(x) : (metric==='duration' ? x.duration : x.kcal);
+  let max = null, min = null, trackedCount = 0;
+  sessionsInRange(range).forEach(x=>{
+    const v = get(x);
+    if(v==null || !(v>0)) return;
+    trackedCount++;
+    if(!max || v>max.value || (v===max.value && x.date>max.session.date)) max = {value:v, session:x};
+    if(!min || v<min.value || (v===min.value && x.date>min.session.date)) min = {value:v, session:x};
+  });
+  return {max, min, trackedCount};
+}
+function fmtExtremeDate(iso){ return new Date(iso+'T00:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}); }
+/* Widget de chiffres : items = [{id, sub, subId, val}] rangés 2 par ligne. */
+function kpiGroupHtml(label, items){
+  const one = it => `<div class="stat-group-item"><div class="value"${it.id?` id="${it.id}"`:''}>${it.val||''}</div><div class="sub"${it.subId?` id="${it.subId}"`:''}>${it.sub||''}</div></div>`;
+  let rows = '';
+  for(let i=0;i<items.length;i+=2){
+    rows += `<div class="stat-group-row">${one(items[i])}${items[i+1] ? '<div class="stat-group-divider"></div>'+one(items[i+1]) : ''}</div>`;
+  }
+  return `<div class="stat-group"><div class="stat-group-label">${label}</div>${rows}</div>`;
+}
+/* Remplit un chiffre max/min : valeur, libellé, pastille du type de séance et date ; un clic ouvre la séance. */
+function setExtreme(id, label, ex, fmt, emptyTxt){
+  const v = document.getElementById(id), sub = document.getElementById(id+'-sub');
+  if(!v || !sub) return;
+  const item = v.closest('.stat-group-item');
+  if(!ex){
+    v.textContent = '—'; sub.textContent = label+' · '+emptyTxt;
+    item.classList.remove('clickable'); item.onclick = null; return;
+  }
+  v.innerHTML = fmt(ex.value);
+  sub.innerHTML = `${label}<br>${sessionBadge(ex.session.name,'sm')} <span>· ${fmtExtremeDate(ex.session.date)}</span>`;
+  item.classList.add('clickable'); item.onclick = ()=> openSessionModal(ex.session.id);
+}
+const kgHtml = v => Math.round(v).toLocaleString('fr-FR')+'<span style="font-size:13px;color:var(--muted);"> kg</span>';
+const kcalHtml = v => Math.round(v).toLocaleString('fr-FR')+'<span style="font-size:13px;color:var(--muted);"> kcal</span>';
 /* Grouping key: PR and "last performance" are tracked per exercise *and* per variant/poulie,
    since the same exercise can be much harder or easier depending on the variant (prise, banc incliné, poulie...). */
 function prGroupKey(exerciseId, variant, pulley){
@@ -2701,100 +2757,53 @@ function renderDashboard(){
 
     <div class="stats-pane${state.statsTab==='summary'?' active':''}" data-pane="summary">
     <div class="stat-grid">
-      <div class="stat-group">
-        <div class="stat-group-label">Séances</div>
-        <div class="stat-group-row">
-          <div class="stat-group-item">
-            <div class="value">${totalSessions}</div>
-            <div class="sub">Total (depuis le début)</div>
-          </div>
-          <div class="stat-group-divider"></div>
-          <div class="stat-group-item">
-            <div class="value" id="kpi-count"></div>
-            <div class="sub" id="kpi-count-sub"></div>
-          </div>
-        </div>
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Volume</div>
-        <div class="stat-group-row">
-          <div class="stat-group-item">
-            <div class="value" id="kpi-volume"></div>
-            <div class="sub" id="kpi-volume-sub"></div>
-          </div>
-          <div class="stat-group-divider"></div>
-          <div class="stat-group-item">
-            <div class="value" id="kpi-avg"></div>
-            <div class="sub">Moyenne / séance</div>
-          </div>
-        </div>
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Temps</div>
-        <div class="stat-group-row">
-          <div class="stat-group-item">
-            <div class="value" id="kpi-duration"></div>
-            <div class="sub" id="kpi-duration-sub"></div>
-          </div>
-          <div class="stat-group-divider"></div>
-          <div class="stat-group-item">
-            <div class="value" id="kpi-duration-avg"></div>
-            <div class="sub">Moyenne / séance</div>
-          </div>
-        </div>
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Calories</div>
-        <div class="stat-group-row">
-          <div class="stat-group-item">
-            <div class="value" id="kpi-kcal"></div>
-            <div class="sub" id="kpi-kcal-sub"></div>
-          </div>
-          <div class="stat-group-divider"></div>
-          <div class="stat-group-item">
-            <div class="value" id="kpi-kcal-avg"></div>
-            <div class="sub">Moyenne / séance</div>
-          </div>
-        </div>
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Forme</div>
-        <div class="stat-group-row">
-          <div class="stat-group-item">
-            <div class="value">${streak}<span style="font-size:12px;color:var(--muted);"> j</span></div>
-            <div class="sub">Série en cours</div>
-          </div>
-          <div class="stat-group-divider"></div>
-          <div class="stat-group-item">
-            <div class="value" id="kpi-newpr"></div>
-            <div class="sub" id="kpi-newpr-sub"></div>
-          </div>
-        </div>
-      </div>
+      ${kpiGroupHtml('Séances', [
+        {id:'kpi-count', subId:'kpi-count-sub'},
+        {id:'kpi-perweek', sub:'Moyenne / semaine sur ces filtres'},
+        {val:String(totalSessions), sub:'Total depuis le début'}
+      ])}
+      ${kpiGroupHtml('Volume', [
+        {id:'kpi-volume', subId:'kpi-volume-sub'},
+        {id:'kpi-avg', sub:'Moyenne / séance'},
+        {id:'kpi-vol-max', subId:'kpi-vol-max-sub'},
+        {id:'kpi-vol-min', subId:'kpi-vol-min-sub'}
+      ])}
+      ${kpiGroupHtml('Temps', [
+        {id:'kpi-duration', subId:'kpi-duration-sub'},
+        {id:'kpi-duration-avg', sub:'Moyenne / séance'},
+        {id:'kpi-dur-max', subId:'kpi-dur-max-sub'},
+        {id:'kpi-dur-min', subId:'kpi-dur-min-sub'}
+      ])}
+      ${kpiGroupHtml('Calories', [
+        {id:'kpi-kcal', subId:'kpi-kcal-sub'},
+        {id:'kpi-kcal-avg', sub:'Moyenne / séance'},
+        {id:'kpi-kcal-max', subId:'kpi-kcal-max-sub'},
+        {id:'kpi-kcal-min', subId:'kpi-kcal-min-sub'}
+      ])}
     </div>
 
     <div class="grid-2-even" style="margin-top:16px;">
-      <div class="card">
-        <div class="section-title">Volume dans le temps</div>
-        <div style="height:200px;" id="volume-trend-wrap"><canvas id="chart-volume-trend"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="section-title">Durée des séances dans le temps</div>
-        <div style="height:200px;" id="duration-trend-wrap"><canvas id="chart-duration-trend"></canvas></div>
-      </div>
-    </div>
-
-    <div class="grid-2-even" style="margin-top:16px;">
-      <div class="card" id="kcal-card">
-        <div class="card-head toggle-head" style="min-height:34px;"><div class="section-title" style="margin-bottom:0;line-height:34px;">Calories dans le temps</div></div>
-        <div style="height:230px;" id="kcal-trend-wrap"><canvas id="chart-kcal-trend"></canvas></div>
-      </div>
-      <div class="card">
+            <div class="card">
         <div class="card-head toggle-head" style="min-height:34px;">
           <div class="section-title" style="margin-bottom:0;line-height:34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="weekday-chart-title"></div>
           <button type="button" class="btn ghost icon-btn-square card-head-btn" id="weekday-mode-btn"></button>
         </div>
         <div style="height:230px;" id="weekday-chart-wrap"><canvas id="chart-weekday"></canvas></div>
+      </div>
+            <div class="card">
+        <div class="section-title">Volume dans le temps</div>
+        <div style="height:230px;" id="volume-trend-wrap"><canvas id="chart-volume-trend"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid-2-even" style="margin-top:16px;">
+            <div class="card">
+        <div class="section-title">Durée des séances dans le temps</div>
+        <div style="height:230px;" id="duration-trend-wrap"><canvas id="chart-duration-trend"></canvas></div>
+      </div>
+            <div class="card" id="kcal-card">
+        <div class="card-head toggle-head" style="min-height:34px;"><div class="section-title" style="margin-bottom:0;line-height:34px;">Calories dans le temps</div></div>
+        <div style="height:230px;" id="kcal-trend-wrap"><canvas id="chart-kcal-trend"></canvas></div>
       </div>
     </div>
 
@@ -2957,16 +2966,15 @@ function renderPeriodWidgets(){
   syncPeriodPanel('dash', 'dash');
   const typeLabel = document.getElementById('dash-type-label');
   if(typeLabel) typeLabel.textContent = formatTypeFilterLabel();
-  const sub = 'sur cette période';
+  const sub = 'sur ces filtres';
   const kpi = computeKPIs(range);
   document.getElementById('kpi-count').textContent = kpi.count;
-  document.getElementById('kpi-count-sub').textContent = sub;
+  document.getElementById('kpi-count-sub').textContent = 'Séances sur ces filtres';
+  const perWeek = computeSessionsPerWeek(range);
+  document.getElementById('kpi-perweek').textContent = perWeek==null ? '—' : perWeek.toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1});
   document.getElementById('kpi-volume').innerHTML = Math.round(kpi.volume).toLocaleString('fr-FR')+'<span style="font-size:13px;color:var(--muted);"> kg</span>';
   document.getElementById('kpi-volume-sub').textContent = sub;
   document.getElementById('kpi-avg').innerHTML = Math.round(kpi.avgVolume).toLocaleString('fr-FR')+'<span style="font-size:13px;color:var(--muted);"> kg</span>';
-  const newPr = countRecentPRs(range);
-  document.getElementById('kpi-newpr').textContent = newPr;
-  document.getElementById('kpi-newpr-sub').textContent = (state.dashPeriod===0) ? "exercice(s) avec un record" : "exercice(s) avec un nouveau record";
 
   const durStats = computeDurationStats(range);
   document.getElementById('kpi-duration').textContent = durStats.trackedCount ? formatDuration(durStats.totalMin) : '—';
@@ -2977,6 +2985,14 @@ function renderPeriodWidgets(){
   document.getElementById('kpi-kcal').innerHTML = kcalStats.trackedCount ? Math.round(kcalStats.totalKcal).toLocaleString('fr-FR')+'<span style="font-size:13px;color:var(--muted);"> kcal</span>' : '—';
   document.getElementById('kpi-kcal-sub').textContent = kcalStats.trackedCount ? `sur ${kcalStats.trackedCount} séance(s) renseignée(s)` : 'aucune calorie renseignée';
   document.getElementById('kpi-kcal-avg').innerHTML = kcalStats.trackedCount ? Math.round(kcalStats.avgKcal).toLocaleString('fr-FR')+'<span style="font-size:13px;color:var(--muted);"> kcal</span>' : '—';
+
+  const exV = computeExtremes(range,'volume'), exD = computeExtremes(range,'duration'), exK = computeExtremes(range,'kcal');
+  setExtreme('kpi-vol-max','Volume max',exV.max,kgHtml,'aucune séance sur ces filtres');
+  setExtreme('kpi-vol-min','Volume min',exV.min,kgHtml,'aucune séance sur ces filtres');
+  setExtreme('kpi-dur-max','Durée max',exD.max,v=>formatDuration(Math.round(v)),'aucune durée renseignée');
+  setExtreme('kpi-dur-min','Durée min',exD.min,v=>formatDuration(Math.round(v)),'aucune durée renseignée');
+  setExtreme('kpi-kcal-max','Calories max',exK.max,kcalHtml,'aucune calorie renseignée');
+  setExtreme('kpi-kcal-min','Calories min',exK.min,kcalHtml,'aucune calorie renseignée');
 
   const hrStats = computeHRStats(range);
   document.getElementById('kpi-hr-avg').innerHTML = hrStats.avgCount ? Math.round(hrStats.avgHr)+'<span style="font-size:13px;color:var(--muted);"> bpm</span>' : '—';
@@ -3031,7 +3047,7 @@ function renderProgressionChart(){
     if(pointBar) pointBar.style.display='none';
     const filtered = (range.from || range.to || state.dashTypeFilter!=='__all__');
     wrap.innerHTML = filtered
-      ? emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Rien sur cette période',"Cet exercice n'apparaît dans aucune séance sur la période sélectionnée. Élargis la période pour voir sa progression.")
+      ? emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Rien sur ces filtres',"Cet exercice n'apparaît dans aucune séance sur ces filtres. Élargis la période pour voir sa progression.")
       : emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Pas encore de donnée',"Cet exercice n'apparaît dans aucune séance importée.");
     return;
   }
@@ -3166,7 +3182,7 @@ function renderMuscleChart(range){
 
   if(entries.length===0){
     wrapEl.innerHTML = bySessionType
-      ? emptyState('CAL','Rien à afficher','Aucune séance sur cette période.')
+      ? emptyState('CAL','Rien à afficher','Aucune séance sur ces filtres.')
       : emptyState('M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4','Rien à afficher','Classe tes exercices par groupe musculaire pour voir la répartition.');
     return;
   }
@@ -3228,7 +3244,7 @@ function heatmapRenderDetail(){
   if(!info){ el.innerHTML = '<span>Touchez ou cliquez un muscle pour voir son détail.</span>'; return; }
   const sub = info.val>0.01
     ? `${heatKg(info.val)} · ${heatPct(info.pct)} du volume · ${info.rank===1 ? '1er' : info.rank+'ᵉ'}`
-    : 'Aucun volume sur la période';
+    : 'Aucun volume sur ces filtres';
   el.innerHTML = `<span class="dot" style="background:${info.color};"></span><div><b>${escapeHtml(info.label)}</b><div class="sub">${sub}</div></div>`;
 }
 function heatmapMoveTip(e){
@@ -3348,7 +3364,7 @@ function renderMuscleHeatmap(range){
   [[frontEl,'de face'],[backEl,'de dos']].forEach(([el,txt])=>{
     const ids = new Set([...el.querySelectorAll('.heatmap-regions [data-muscle]')].map(g=>g.dataset.muscle));
     const top = entries.filter(e=>ids.has(e.id) && e.val>0.01).slice(0,3).map(e=>`${e.label} ${Math.round(e.val).toLocaleString('fr-FR')} kg`);
-    el.setAttribute('aria-label', `Carte de chaleur musculaire, vue ${txt}. ` + (top.length ? 'Les plus travaillés : ' + top.join(', ') + '. Détail complet dans la liste.' : 'Aucun volume sur la période.'));
+    el.setAttribute('aria-label', `Carte de chaleur musculaire, vue ${txt}. ` + (top.length ? 'Les plus travaillés : ' + top.join(', ') + '. Détail complet dans la liste.' : 'Aucun volume sur ces filtres.'));
   });
   heatmapHideTip();
 
@@ -3370,7 +3386,7 @@ function renderMuscleHeatmap(range){
     </div>` : '');
 
   if(entries.every(e=>e.val<=0.01) && autreVal<=0.01){
-    legendEl.innerHTML = `<div style="color:var(--muted-2);font-size:12.5px;">Aucune séance sur cette période.</div>` + legendEl.innerHTML;
+    legendEl.innerHTML = `<div style="color:var(--muted-2);font-size:12.5px;">Aucune séance sur ces filtres.</div>` + legendEl.innerHTML;
   }
 
   heatmapRenderScale(entries.map(e=>e.val).filter(v=>v>0.01), max, stops);
@@ -3383,7 +3399,7 @@ function renderVolumeTrendChart(range){
   if(!wrapEl) return;
   const buckets = computeVolumeTrend(range);
   if(buckets.length===0){
-    wrapEl.innerHTML = emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Rien à afficher','Aucune séance sur cette période.');
+    wrapEl.innerHTML = emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Rien à afficher','Aucune séance sur ces filtres.');
     return;
   }
   if(!document.getElementById('chart-volume-trend')){
@@ -3400,7 +3416,7 @@ function renderDurationTrendChart(range){
   if(!wrapEl) return;
   const buckets = computeDurationTrend(range);
   if(buckets.length===0){
-    wrapEl.innerHTML = emptyState('M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z','Rien à afficher','Aucune séance avec une durée renseignée sur cette période.');
+    wrapEl.innerHTML = emptyState('M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z','Rien à afficher','Aucune séance avec une durée renseignée sur ces filtres.');
     return;
   }
   if(!document.getElementById('chart-duration-trend')){
@@ -3421,7 +3437,7 @@ function renderKcalTrendChart(range){
   if(!wrapEl) return;
   const buckets = computeKcalTrend(range);
   if(buckets.length===0){
-    wrapEl.innerHTML = emptyState('M13 2L3 14h9l-1 8 10-12h-9l1-8z','Rien à afficher','Aucune séance avec des calories renseignées sur cette période.');
+    wrapEl.innerHTML = emptyState('M13 2L3 14h9l-1 8 10-12h-9l1-8z','Rien à afficher','Aucune séance avec des calories renseignées sur ces filtres.');
     return;
   }
   if(!document.getElementById('chart-kcal-trend')){
@@ -3598,7 +3614,7 @@ function renderWeekdayTypeChart(range){
   const {keys, rows} = computeWeekdayTypeBreakdown(range);
   const active = keys.filter(k=>rows.some(r=>r[k]>0));
   if(active.length===0){
-    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur cette période.');
+    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur ces filtres.');
     return;
   }
   if(!document.getElementById('chart-weekday')){
@@ -3642,7 +3658,7 @@ function renderWeekdayChart(range){
   if(state.weekdayChartMode==='type'){ renderWeekdayTypeChart(range); return; }
   const counts = computeWeekdayFrequency(range);
   if(counts.every(c=>c===0)){
-    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur cette période.');
+    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur ces filtres.');
     return;
   }
   if(!document.getElementById('chart-weekday')){
@@ -3661,7 +3677,7 @@ function renderSessionTypeChart(range){
   const defs = [['push','Push'],['pull','Pull'],['upper','Upper'],['legs','Legs'],['other','Autre']];
   const entries = defs.map(([k,label])=>({label, val:counts[k], color:SESSION_TYPES[k].color})).filter(e=>e.val>0);
   if(entries.length===0){
-    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur cette période.');
+    wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur ces filtres.');
     return;
   }
   if(!document.getElementById('chart-session-type')){
@@ -6329,7 +6345,10 @@ function computeUserSnapshot(sessions, range, typeFilter){
       muscleEntries: MUSCLE_GROUPS.map(m=>({...m, val: muscleTotals[m.id]||0})).filter(m=>m.val>0.01),
       typeEntries: [['push','Push'],['pull','Pull'],['upper','Upper'],['legs','Legs'],['other','Autre']]
         .map(([k,label])=>({label, val: typeTotals[k]||0, color: SESSION_TYPES[k].color})).filter(e=>e.val>0.01),
-      volumeTrend, durationTrend, kcalTrend, weekday
+      volumeTrend, durationTrend, kcalTrend, weekday,
+      perWeek: computeSessionsPerWeek(range),
+      weekdayTypes: computeWeekdayTypeBreakdown(range),
+      volEx: computeExtremes(range,'volume'), durEx: computeExtremes(range,'duration'), kcalEx: computeExtremes(range,'kcal')
     };
   } finally {
     state.sessions = prevSessions; state.dashTypeFilter = prevType;
@@ -6392,21 +6411,39 @@ function cmpVsGroup(label, rowsHtml){
 }
 /* Reproduit les 5 mêmes groupes (Séances / Volume / Temps / Calories / Forme) que le tableau de bord,
    mais en une seule série de cartes appariées (au lieu de deux colonnes dupliquées). */
+function fmtPerWeek(v){ return (v||0).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1}); }
+/* Ligne max/min : valeur de chaque profil + type de séance et date en dessous.
+   Max : le plus haut est surligné avec l'écart ; min : aucun surlignage (un min plus bas n'est pas « meilleur »). */
+function cmpExtRow(sub, exA, exB, fmt, highlight){
+  const cell = (ex, hi)=> `<div class="cmp-vs-val has-meta${hi?' cmp-hi':''}">${ex ? fmt(ex.value)+`<div class="cmp-ext-meta">${sessionBadge(ex.session.name,'sm')}<span>${fmtExtremeDate(ex.session.date)}</span></div>` : '—'}</div>`;
+  const diff = (exA && exB) ? exA.value - exB.value : 0;
+  const show = highlight && exA && exB && fmt(exA.value)!==fmt(exB.value);
+  const hiA = !!(show && diff>0), hiB = !!(show && diff<0);
+  const mid = show ? `<span class="cmp-vs-arrow">${hiA?'◀':'▶'}</span><span>${fmt(Math.abs(diff))}</span>` : '';
+  return `<div class="cmp-vs-row"><div class="cmp-vs-sub">${sub}</div><div class="cmp-vs-values">${cell(exA,hiA)}<div class="cmp-vs-mid">${mid}</div>${cell(exB,hiB)}</div></div>`;
+}
+/* Mêmes 4 widgets que le Résumé (Séances / Volume / Temps / Calories), en cartes appariées A | B. */
 function buildUnifiedStatGroupsHtml(snapA, snapB){
   return `<div class="cmp-vs-groups">
-    ${cmpVsGroup('Séances', cmpVsRow('sur la période', snapA.kpi.count, snapB.kpi.count, fmtInt))}
+    ${cmpVsGroup('Séances',
+      cmpVsRow('Séances sur ces filtres', snapA.kpi.count, snapB.kpi.count, fmtInt) +
+      cmpVsRow('Moyenne / semaine sur ces filtres', snapA.perWeek||0, snapB.perWeek||0, fmtPerWeek) +
+      cmpVsRow('Total depuis le début', snapA.totalSessions, snapB.totalSessions, fmtInt))}
     ${cmpVsGroup('Volume',
-      cmpVsRow('sur la période', snapA.kpi.volume, snapB.kpi.volume, fmtKg) +
-      cmpVsRow('Moyenne / séance', snapA.kpi.avgVolume, snapB.kpi.avgVolume, fmtKg))}
+      cmpVsRow('Volume total sur ces filtres', snapA.kpi.volume, snapB.kpi.volume, fmtKg) +
+      cmpVsRow('Moyenne / séance', snapA.kpi.avgVolume, snapB.kpi.avgVolume, fmtKg) +
+      cmpExtRow('Volume max', snapA.volEx.max, snapB.volEx.max, fmtKg, true) +
+      cmpExtRow('Volume min', snapA.volEx.min, snapB.volEx.min, fmtKg, false))}
     ${cmpVsGroup('Temps',
-      cmpVsRow('sur la période', snapA.dur.totalMin, snapB.dur.totalMin, fmtDurCmp) +
-      cmpVsRow('Moyenne / séance', snapA.dur.avgMin, snapB.dur.avgMin, fmtDurCmp))}
+      cmpVsRow('Temps total sur ces filtres', snapA.dur.totalMin, snapB.dur.totalMin, fmtDurCmp) +
+      cmpVsRow('Moyenne / séance', snapA.dur.avgMin, snapB.dur.avgMin, fmtDurCmp) +
+      cmpExtRow('Durée max', snapA.durEx.max, snapB.durEx.max, fmtDurCmp, true) +
+      cmpExtRow('Durée min', snapA.durEx.min, snapB.durEx.min, fmtDurCmp, false))}
     ${cmpVsGroup('Calories',
-      cmpVsRow('sur la période', snapA.kcal.totalKcal, snapB.kcal.totalKcal, fmtKcalCmp) +
-      cmpVsRow('Moyenne / séance', snapA.kcal.avgKcal, snapB.kcal.avgKcal, fmtKcalCmp))}
-    ${cmpVsGroup('Forme',
-      cmpVsRow('Série en cours', snapA.streak, snapB.streak, fmtDays) +
-      cmpVsRow('Nouveaux records', snapA.newPr, snapB.newPr, fmtInt))}
+      cmpVsRow('Calories totales sur ces filtres', snapA.kcal.totalKcal, snapB.kcal.totalKcal, fmtKcalCmp) +
+      cmpVsRow('Moyenne / séance', snapA.kcal.avgKcal, snapB.kcal.avgKcal, fmtKcalCmp) +
+      cmpExtRow('Calories max', snapA.kcalEx.max, snapB.kcalEx.max, fmtKcalCmp, true) +
+      cmpExtRow('Calories min', snapA.kcalEx.min, snapB.kcalEx.min, fmtKcalCmp, false))}
   </div>`;
 }
 /* Module "Progression par exercice" de la vue comparaison : reprend le graphique du tableau de bord
@@ -6501,7 +6538,7 @@ function renderCompareProgressionChart(uA, uB, sessA, sessB, range){
 
   renderCompareHistory(ex, uA, uB, sessA, sessB);
   if(histA.length===0 && histB.length===0){
-    wrap.innerHTML = emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Rien à afficher',"Cet exercice n'apparaît dans aucune séance des deux profils sur la période sélectionnée.");
+    wrap.innerHTML = emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Rien à afficher',"Cet exercice n'apparaît dans aucune séance des deux profils sur ces filtres.");
     return;
   }
   if(!document.getElementById('cmp-chart-progression')){
@@ -6689,7 +6726,7 @@ function renderCompareDoughnuts(suffix, snap){
   const muscleWrap = document.getElementById('cmp-muscle-wrap-'+suffix);
   if(muscleWrap){
     if(snap.muscleEntries.length===0){
-      muscleWrap.innerHTML = emptyState('M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4','Rien à afficher','Aucune séance sur cette période.');
+      muscleWrap.innerHTML = emptyState('M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4','Rien à afficher','Aucune séance sur ces filtres.');
     } else {
       if(!document.getElementById('cmp-muscle-'+suffix)) muscleWrap.innerHTML = `<canvas id="cmp-muscle-${suffix}"></canvas>`;
       renderChartSafe('cmp-muscle-'+suffix, {
@@ -6702,7 +6739,7 @@ function renderCompareDoughnuts(suffix, snap){
   const typeWrap = document.getElementById('cmp-type-wrap-'+suffix);
   if(typeWrap){
     if(snap.typeEntries.length===0){
-      typeWrap.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur cette période.');
+      typeWrap.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance sur ces filtres.');
     } else {
       if(!document.getElementById('cmp-type-'+suffix)) typeWrap.innerHTML = `<canvas id="cmp-type-${suffix}"></canvas>`;
       renderChartSafe('cmp-type-'+suffix, {
@@ -6731,27 +6768,24 @@ function twoUserLegendHtml(uA, uB){
 /* Les 4 widgets "en barre" du tableau de bord (volume / durée / calories dans le temps + fréquence par
    jour), fusionnés en un seul graphique par widget, chaque utilisateur ayant sa propre couleur de barre. */
 function buildCompareBarWidgetsHtml(){
+  const card = (title, key)=> `<div class="card">
+        <div class="section-title">${title}</div>
+        <div class="cmp-bar-wrap" id="cmp-bar-wrap-${key}"><div class="cmp-bar-chart-holder"><canvas id="cmp-bar-${key}"></canvas></div></div>
+      </div>`;
   return `
-    <div class="section-title" style="margin:22px 0 12px;">Comparaison dans le temps</div>
-    <div class="grid-2-even" style="margin-top:0;">
+    <div class="grid-2-even" style="margin-top:16px;">
       <div class="card">
-        <div class="section-title">Volume dans le temps</div>
-        <div class="cmp-bar-wrap" id="cmp-bar-wrap-volume"><div class="cmp-bar-chart-holder"><canvas id="cmp-bar-volume"></canvas></div></div>
-      </div>
-      <div class="card">
-        <div class="section-title">Durée des séances dans le temps</div>
-        <div class="cmp-bar-wrap" id="cmp-bar-wrap-duration"><div class="cmp-bar-chart-holder"><canvas id="cmp-bar-duration"></canvas></div></div>
-      </div>
-    </div>
-    <div class="grid-2-even">
-      <div class="card">
-        <div class="section-title">Calories dans le temps</div>
-        <div class="cmp-bar-wrap" id="cmp-bar-wrap-kcal"><div class="cmp-bar-chart-holder"><canvas id="cmp-bar-kcal"></canvas></div></div>
-      </div>
-      <div class="card">
-        <div class="section-title">Fréquence par jour de la semaine</div>
+        <div class="card-head toggle-head" style="min-height:34px;">
+          <div class="section-title" style="margin-bottom:0;line-height:34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="cmp-weekday-title"></div>
+          <button type="button" class="btn ghost icon-btn-square card-head-btn" id="cmp-weekday-mode-btn"></button>
+        </div>
         <div class="cmp-bar-wrap" id="cmp-bar-wrap-weekday"><div class="cmp-bar-chart-holder"><canvas id="cmp-bar-weekday"></canvas></div></div>
       </div>
+      ${card('Volume dans le temps','volume')}
+    </div>
+    <div class="grid-2-even">
+      ${card('Durée des séances dans le temps','duration')}
+      ${card('Calories dans le temps','kcal')}
     </div>`;
 }
 function renderCompareBarWidgets(uA, uB, snapA, snapB){
@@ -6782,21 +6816,76 @@ function renderCompareBarWidgets(uA, uB, snapA, snapB){
 
   const volumeRows = mergeTrendSeries(snapA.volumeTrend, snapB.volumeTrend, 'volume');
   twoUserBar('volume', 'cmp-bar-wrap-volume', 'cmp-bar-volume', volumeRows, null,
-    'M4 19V10M10 19V5M16 19V13M22 19H2', 'Aucune séance sur cette période.');
+    'M4 19V10M10 19V5M16 19V13M22 19H2', 'Aucune séance sur ces filtres.');
 
   const durationRows = mergeTrendSeries(snapA.durationTrend, snapB.durationTrend, 'minutes').map(r=>({...r, a:r.a/60, b:r.b/60}));
   twoUserBar('duration', 'cmp-bar-wrap-duration', 'cmp-bar-duration', durationRows,
     (ctx)=> `${ctx.dataset.label} : ${formatDuration(Math.round(ctx.parsed.y*60))}`,
-    'M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Aucune durée renseignée sur cette période.', 2, (v)=> v+' h');
+    'M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Aucune durée renseignée sur ces filtres.', 2, (v)=> v+' h');
 
   const kcalRows = mergeTrendSeries(snapA.kcalTrend, snapB.kcalTrend, 'kcal');
   twoUserBar('kcal', 'cmp-bar-wrap-kcal', 'cmp-bar-kcal', kcalRows,
     (ctx)=> `${ctx.dataset.label} : ${ctx.parsed.y.toLocaleString('fr-FR')} kcal`,
-    'M13 2L3 14h9l-1 8 10-12h-9l1-8z', 'Aucune calorie renseignée sur cette période.');
+    'M13 2L3 14h9l-1 8 10-12h-9l1-8z', 'Aucune calorie renseignée sur ces filtres.');
 
-  const weekdayRows = DAYS_FR.map((label,i)=>({ key:String(i), label, a: snapA.weekday[i]||0, b: snapB.weekday[i]||0 }));
-  twoUserBar('weekday', 'cmp-bar-wrap-weekday', 'cmp-bar-weekday', weekdayRows.some(r=>r.a||r.b) ? weekdayRows : [],
-    null, 'CAL', 'Aucune séance sur cette période.');
+  /* Jour de la semaine : total par profil, ou (bascule) répartition par type de séance, un empilement par profil
+     (A = couleurs pleines, B = couleurs claires). */
+  function drawWeekday(){
+    const byType = state.cmpWeekdayMode==='type';
+    const wrap = document.getElementById('cmp-bar-wrap-weekday');
+    if(!wrap) return;
+    const t = document.getElementById('cmp-weekday-title');
+    if(t) t.textContent = byType ? 'Types de séance par jour' : 'Séances par jour';
+    const b = document.getElementById('cmp-weekday-mode-btn');
+    if(b){
+      const label = byType ? 'Voir le total par jour' : 'Voir les types de séance par jour';
+      b.innerHTML = byType ? iconSvg('M4 19V10M10 19V5M16 19V13M22 19H2') : iconSvg('M4 20h6v-5H4zM4 15h6v-5H4zM14 20h6v-9h-6zM14 11h6V7h-6z');
+      b.title = label; b.setAttribute('aria-label', label);
+    }
+    wrap.innerHTML = '';
+    if(!byType){
+      const weekdayRows = DAYS_FR.map((label,i)=>({ key:String(i), label, a: snapA.weekday[i]||0, b: snapB.weekday[i]||0 }));
+      twoUserBar('weekday', 'cmp-bar-wrap-weekday', 'cmp-bar-weekday', weekdayRows.some(r=>r.a||r.b) ? weekdayRows : [],
+        null, 'CAL', 'Aucune séance sur ces filtres.');
+      return;
+    }
+    const rowsA = snapA.weekdayTypes.rows, rowsB = snapB.weekdayTypes.rows;
+    const active = snapA.weekdayTypes.keys.filter(k=>rowsA.some(r=>r[k]>0) || rowsB.some(r=>r[k]>0));
+    if(!active.length){
+      wrap.innerHTML = `<div class="cmp-bar-chart-holder">${emptyState('CAL','Rien à afficher','Aucune séance sur ces filtres.')}</div>`;
+      return;
+    }
+    const light = c => /^#[0-9a-f]{6}$/i.test(c) ? c+'80' : c;
+    wrap.innerHTML = `<div class="cmp-type-note" style="font-size:11px;color:var(--muted);margin-bottom:6px;">${uA.name} : couleurs pleines · ${uB.name} : couleurs claires</div><div class="cmp-bar-chart-holder"><canvas id="cmp-bar-weekday"></canvas></div>`;
+    const datasets = [];
+    active.forEach(k=>{
+      const label = k==='other' ? 'Autres' : SESSION_TYPES[k].label;
+      datasets.push({ label, owner:uA.name, stack:'a', data: rowsA.map(r=>r[k]), backgroundColor: SESSION_TYPES[k].color, borderRadius:3, maxBarThickness:20 });
+      datasets.push({ label, owner:uB.name, stack:'b', data: rowsB.map(r=>r[k]), backgroundColor: light(SESSION_TYPES[k].color), borderRadius:3, maxBarThickness:20 });
+    });
+    renderChartSafe('cmp-bar-weekday', {
+      type:'bar',
+      data:{ labels: DAYS_FR, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ position:'bottom', labels:{ color:COLORS.muted, boxWidth:10, font:{size:11},
+            filter:(it, data)=> data.datasets.findIndex(d=>d.label===it.text)===it.datasetIndex } },
+          tooltip:{ callbacks:{ label:(ctx)=> `${ctx.dataset.owner} · ${ctx.dataset.label} : ${ctx.parsed.y}` } }
+        },
+        scales:{
+          x: Object.assign(chartGridOpts(), {stacked:true}),
+          y: Object.assign(chartGridOpts(), {stacked:true, ticks:Object.assign({}, chartGridOpts().ticks, {stepSize:1})})
+        }
+      }
+    });
+  }
+  drawWeekday();
+  const wdBtn = document.getElementById('cmp-weekday-mode-btn');
+  if(wdBtn) wdBtn.addEventListener('click', ()=>{
+    state.cmpWeekdayMode = state.cmpWeekdayMode==='type' ? 'count' : 'type';
+    drawWeekday();
+  });
 }
 async function renderCompareBody(){
   const body = document.getElementById('cmp-body');
@@ -6852,9 +6941,9 @@ async function renderCompareBody(){
   body.innerHTML = `
     ${buildCompareVsHeadHtml(uA, uB, snapA, snapB)}
     ${buildUnifiedStatGroupsHtml(snapA, snapB)}
+    ${buildCompareBarWidgetsHtml()}
     ${buildCompareProgressionHtml()}
-    ${buildCompareChartsHtml(uA, uB)}
-    ${buildCompareBarWidgetsHtml()}`;
+    ${buildCompareChartsHtml(uA, uB)}`;
   renderCompareProgressionChart(uA, uB, sessA, sessB, range);
   renderCompareDoughnuts('a', snapA);
   renderCompareDoughnuts('b', snapB);
