@@ -2,11 +2,12 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.15
-terminé: (rien)
-refonte Statistiques v5.15 terminée (10 étapes : libellés, Forme retiré, widgets Séances/Volume/Temps/Calories avec moyenne par semaine et max/min, graphiques réordonnés, Comparer aligné)
-prochaine: (rien)
+version: 5.16
+terminé: fonctionnalité cardio C1-C9 (sessions cardio par profil : onglet Cardio liste/calendrier, formulaire plein écran mobile, Statistiques > Cardio, calendriers Séances/Cardio/Les deux non mémorisé, carte Accueil, bloc Comparer ; clé 'cardio' namespacée incluse dans sauvegardes, restauration, Drive, suppression/réinitialisation de profil) ; bascule Muscu/Cardio dans Statistiques = logo #stats-mode-btn à droite des onglets (cardio : onglets Résumé + Cœur, state.statsTab partagé) ; recette C9 (réinitialisations touchent le cardio et tous les profils, widget plateaux corrigé) ; refonte Statistiques v5.15
+prochaine: rien de planifié (plan cardio C1-C9 terminé)
 notes (ne garder que ce qui sert aux futures modifications) :
+- Statistiques : bascule Muscu/Cardio (state.statsMode, #stats-mode-btn, filtre `mode` des onglets dans visibleTabs) ; Comparer commun ; switchView synchronise statsMode.
+- Cardio : session = {id,date,time,kind,activity,durationMin,distanceKm,place,avgHR,maxHR,kcal,note} ; vitesse/allure jamais stockées (cardioSpeedKmh/cardioPaceMinKm) ; state.cardio + saveCardio/readCardioForUser/writeCardioForUser ; refreshCardioViews() après toute modification.
 - Fichier unique, sans build. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
 - Couleurs : jamais en dur ; COLORS + USER_COLOR_POOL, variables CSS (--accent, --surface…). Ne pas renommer ids HTML, fonctions ni clés de stockage ; stockage via readStored/writeStored.
 - Éditeur : le champ caché [data-entry-exercise] est la source de vérité de l'exercice ; la liste de variante n'existe que si l'exercice a des variantes ; persistSessionEditor relit le DOM. Séance validée = lecture seule.
@@ -183,6 +184,10 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .section-tab{background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:10px 16px;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;transition:color .15s, border-color .15s;}
 .section-tab:hover{color:var(--text);}
 .section-tab.active{color:var(--text);border-bottom-color:var(--accent);}
+.stats-mode-btn{margin-left:auto;flex-shrink:0;position:sticky;right:0;align-self:center;width:36px;height:36px;margin-bottom:4px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--accent);background:var(--surface-2);color:var(--accent);cursor:pointer;box-shadow:-8px 0 8px var(--bg);}
+.stats-mode-btn svg{width:19px;height:19px;}
+.stats-mode-btn:hover{background:var(--surface-3);}
+@media(max-width:600px){.stats-mode-btn{width:44px;height:44px;}}
 .view{display:none;animation:fadeIn .25s ease;}
 .view.active{display:block;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
@@ -426,6 +431,8 @@ th[data-sort]:hover{color:var(--text);}
   }
   .tabbar-item svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;}
   .tabbar-item.active{color:var(--accent);}
+  .tabbar-item span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  @media (max-width:400px){ .tabbar-item{font-size:9.5px;} }
   .tabbar-item .nav-badge{position:absolute;top:1px;left:calc(50% + 6px);margin:0;}
   .fab{
     position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom, 0px));z-index:170;
@@ -607,6 +614,9 @@ label.field-label{font-size:11px;color:var(--muted);text-transform:uppercase;let
 .switch-row .switch-label{font-size:13.5px;font-weight:500;color:var(--text);}
 .switch-row .switch-hint{font-size:11.5px;color:var(--muted-2);}
 
+.muted{color:var(--muted);}
+.badge.cardio-treadmill{background:rgba(91,132,166,0.18);color:var(--steel);}
+.badge.cardio-outdoor{background:rgba(var(--accent-rgb),0.16);color:var(--accent);}
 .badge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:0.03em;}
 .badge.ok{background:rgba(111,203,159,0.15);color:var(--good);}
 .badge.warn{background:rgba(242,165,65,0.15);color:var(--warn);}
@@ -882,7 +892,10 @@ td.mono{color:var(--muted);}
     <div class="view" id="view-compare"></div>
     <div class="view" id="view-records"></div>
     <div class="view" id="view-calendar"></div>
+    <div class="view" id="view-cardiocal"></div>
     <div class="view" id="view-sessions"></div>
+    <div class="view" id="view-cardio"></div>
+    <div class="view" id="view-cardiostats"></div>
     <div class="view" id="view-exercises"></div>
     <div class="view" id="view-import"></div>
     <div class="view" id="view-profiles"></div>
@@ -1026,8 +1039,10 @@ const NAV_SECTIONS = [
     tabs:[{view:'home', label:'Accueil'}]},
   {id:'sessions', label:'Séances', icon:'DUMBBELL',
     tabs:[{view:'sessions', label:'Liste'}, {view:'calendar', label:'Calendrier'}]},
+  {id:'cardio', label:'Cardio', icon:'HEART',
+    tabs:[{view:'cardio', label:'Liste'}, {view:'cardiocal', label:'Calendrier'}]}, // les stats cardio vivent dans Statistiques > Cardio
   {id:'stats', label:'Statistiques', short:'Stats', icon:'M4 19V10M10 19V5M16 19V13M22 19H2',
-    tabs:[{view:'dashboard', tab:'summary', label:'Résumé'}, {view:'dashboard', tab:'progress', label:'Progression'}, {view:'dashboard', tab:'muscles', label:'Muscles'}, {view:'dashboard', tab:'heart', label:'Cœur'}, {view:'records', label:'Records'}, {view:'compare', label:'Comparer', when:()=>loadUsers().length>1}]},
+    tabs:[{view:'dashboard', tab:'summary', label:'Résumé', mode:'muscu'}, {view:'dashboard', tab:'progress', label:'Progression', mode:'muscu'}, {view:'dashboard', tab:'muscles', label:'Muscles', mode:'muscu'}, {view:'dashboard', tab:'heart', label:'Cœur', mode:'muscu'}, {view:'cardiostats', tab:'summary', label:'Résumé', mode:'cardio'}, {view:'cardiostats', tab:'heart', label:'Cœur', mode:'cardio'}, {view:'records', label:'Records', mode:'muscu'}, {view:'compare', label:'Comparer', when:()=>loadUsers().length>1}]},
   {id:'exercises', label:'Exercices', icon:'M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4',
     tabs:[{view:'exercises', label:'Exercices'}]},
   {id:'data', label:'Données', icon:'SHIELD',
@@ -1041,6 +1056,7 @@ const DAYS_FR = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 let state = {
   exercises: [],
   sessions: [],
+  cardio: [], // sessions cardio du profil actif (clé namespacée 'cardio')
   currentUserId: null, // défini dans loadData() / initUsers() avant tout rendu
   currentView: 'home',
   calMonth: new Date().getMonth(),
@@ -1057,6 +1073,7 @@ let state = {
   recMuscleFilter: '__all__',
   recSort: {key:'name', dir:'asc'},
   statsTab: 'summary', // 'summary' | 'progress' | 'muscles' | 'heart' — onglet affiché dans Statistiques
+  statsMode: 'muscu', // 'muscu' | 'cardio' — bascule en haut de Statistiques ; Comparer est commun aux deux
   weekdayChartMode: 'count', // 'count' | 'type' — bascule du widget « Fréquence par jour de la semaine »
   muscleChartMode: 'muscle', // 'muscle' | 'sessionType' — bascule le widget "Répartition du volume"
   dashTypeFilter: '__all__', // '__all__' | 'push' | 'pull' | 'upper' | 'legs' | 'other' — filtre par type de séance du tableau de bord
@@ -1086,6 +1103,7 @@ async function loadData(){
   state.currentUserId = loadActiveUserId();
   state.exercises = await readStored('exercises');
   state.sessions = await readStored('sessions');
+  state.cardio = normalizeCardioList(await readStored('cardio'));
   const storedPulleys = await readStored('pulleyTypes');
   if(storedPulleys && typeof storedPulleys==='object'){ PULLEYS = {...DEFAULT_PULLEYS, ...storedPulleys}; }
   else { PULLEYS = {...DEFAULT_PULLEYS}; await savePulleyTypes(); }
@@ -1187,6 +1205,7 @@ async function switchUser(id){
   // Les exercices sont globaux : pas besoin de recharger. Seules les séances sont propres au profil.
   state.sessions = await readStored('sessions');
   if(state.sessions === null){ state.sessions = []; await saveSessions(); }
+  state.cardio = normalizeCardioList(await readStored('cardio'));
   migratePulleyData();
   applyUserTheme();
   renderUserSwitcher();
@@ -1336,6 +1355,7 @@ async function deleteUser(id){
     state.currentUserId = remaining[0].id;
     setActiveUserId(state.currentUserId);
     state.sessions = await readStored('sessions') || [];
+    state.cardio = normalizeCardioList(await readStored('cardio'));
   }
   if(document.getElementById('view-backup')) renderBackupView();
   if(document.getElementById('view-profiles')) renderProfilesView();
@@ -1581,6 +1601,60 @@ async function saveSessions(){ exAllSessions=null;
   try{ await writeStored('sessions', state.sessions); }
   catch(e){ showToast("Erreur de sauvegarde des séances", 'bad'); }
 }
+/* ============================= CARDIO (données) =============================
+   Session cardio = {id, date, time, kind:'treadmill'|'outdoor', activity:'walk'|'run', durationMin, distanceKm,
+   place, avgHR, maxHR, kcal, note}. Vitesse et allure ne sont JAMAIS stockées : toujours recalculées. */
+const CARDIO_KINDS = {treadmill:'Tapis', outdoor:'Extérieur'};
+const CARDIO_ACTIVITIES = {walk:'Marche', run:'Course'};
+function cardioNum(v){
+  if(v===null || v===undefined || v==='') return null;
+  const n = Number(String(v).replace(',','.'));
+  return isFinite(n) && n>=0 ? n : null;
+}
+function cardioNewId(){ return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function normalizeCardioSession(c){
+  if(!c || typeof c!=='object') return null;
+  const durationMin = cardioNum(c.durationMin), distanceKm = cardioNum(c.distanceKm);
+  if(!c.date || !durationMin || !distanceKm) return null;
+  return {
+    id: c.id || cardioNewId(),
+    date: String(c.date).slice(0,10),
+    time: c.time ? String(c.time).slice(0,5) : '',
+    kind: c.kind==='outdoor' ? 'outdoor' : 'treadmill',
+    activity: c.activity==='walk' ? 'walk' : 'run',
+    durationMin, distanceKm,
+    place: c.kind==='outdoor' && c.place ? String(c.place).slice(0,120) : '',
+    avgHR: cardioNum(c.avgHR), maxHR: cardioNum(c.maxHR), kcal: cardioNum(c.kcal),
+    note: c.note ? String(c.note).slice(0,500) : ''
+  };
+}
+function normalizeCardioList(list){
+  return Array.isArray(list) ? list.map(normalizeCardioSession).filter(Boolean) : [];
+}
+function cardioSpeedKmh(c){ return (c && c.durationMin>0 && c.distanceKm>0) ? c.distanceKm / (c.durationMin/60) : null; }
+function cardioPaceMinKm(c){ return (c && c.durationMin>0 && c.distanceKm>0) ? c.durationMin / c.distanceKm : null; }
+function cardioFormatSpeed(c){ const v = cardioSpeedKmh(c); return v===null ? '—' : v.toFixed(1).replace('.',',') + ' km/h'; }
+function cardioFormatPace(c){
+  const p = cardioPaceMinKm(c); if(p===null) return '—';
+  let m = Math.floor(p), sec = Math.round((p-m)*60); if(sec===60){ m++; sec=0; }
+  return m + ':' + String(sec).padStart(2,'0') + ' /km';
+}
+function cardioFormatDuration(min){
+  if(!min && min!==0) return '—';
+  const h = Math.floor(min/60), m = Math.round(min%60);
+  return h>0 ? h + ' h ' + String(m).padStart(2,'0') : m + ' min';
+}
+async function saveCardio(){
+  try{ await writeStored('cardio', state.cardio); }
+  catch(e){ showToast("Erreur de sauvegarde des sessions cardio", 'bad'); }
+}
+async function readCardioForUser(userId){
+  return normalizeCardioList(await readStored('cardio', userId));
+}
+async function writeCardioForUser(userId, list){
+  await writeStored('cardio', normalizeCardioList(list), userId);
+}
+
 function seedExercises(){
   const mk = (name, muscles, variants, defaultVariant='') => ({id:slugify(name), name, muscles, classified:true, variants:variants||[], defaultVariant});
   return [
@@ -1705,7 +1779,7 @@ async function closeModal(){
   if(wasActive) unlockBodyScroll();
 }
 document.getElementById('modal-bg').addEventListener('click', (e)=>{ if(e.target.id==='modal-bg') closeModal(); });
-document.getElementById('fab-new-session').addEventListener('click', ()=> createSession());
+document.getElementById('fab-new-session').addEventListener('click', ()=>{ if(sectionOfView(state.currentView).id==='cardio') openCardioModal(); else createSession(); });
 document.getElementById('mobile-user-btn').addEventListener('click', (e)=>{
   e.stopPropagation();
   const menu = document.getElementById('mobile-user-menu');
@@ -1719,6 +1793,9 @@ document.addEventListener('click', (e)=>{
 function iconSvg(path){
   if(path==='CAL'){
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>`;
+  }
+  if(path==='HEART'){
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.6-9-9.6C2 7.500 4 4.500 7 4.500c2 0 3.500 1 5 3 1.500-2 3-3 5-3 3 0 5 3 4 6.400-1.500 5-9 9.600-9 9.600z"/></svg>`;
   }
   if(path==='SHIELD'){
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2.5l7.5 3.4v5.4c0 5-3.2 8.4-7.5 10-4.3-1.6-7.5-5-7.5-10V5.9L12 2.5z"/></svg>`;
@@ -1742,7 +1819,7 @@ function unclassifiedCount(){
 function sectionOfView(view){
   return NAV_SECTIONS.find(sec=>sec.tabs.some(t=>t.view===view)) || NAV_SECTIONS[0];
 }
-function visibleTabs(sec){ return sec.tabs.filter(t=>!t.when || t.when()); }
+function visibleTabs(sec){ return sec.tabs.filter(t=>(!t.when || t.when()) && (!t.mode || t.mode===state.statsMode)); }
 function gotoSection(id){
   const sec = NAV_SECTIONS.find(x=>x.id===id);
   const tabs = visibleTabs(sec);
@@ -1751,7 +1828,7 @@ function gotoSection(id){
   if(target.tab && sec.id!=='stats') state.statsTab = target.tab;
   switchView(target.view);
 }
-/* Barre d'onglets du bas (mobile) : mêmes 5 entrées que la barre latérale ; bouton « + » visible sur Accueil et Séances. */
+/* Barre d'onglets du bas (mobile) : mêmes 6 entrées que la barre latérale ; bouton « + » visible sur Accueil et Séances. */
 function renderMobileTabbar(current){
   const bar = document.getElementById('mobile-tabbar');
   if(!bar) return;
@@ -1761,7 +1838,10 @@ function renderMobileTabbar(current){
   }).join('');
   bar.querySelectorAll('[data-tabbar]').forEach(b=> b.addEventListener('click', ()=> gotoSection(b.dataset.tabbar)));
   const fab = document.getElementById('fab-new-session');
-  if(fab) fab.classList.toggle('visible', current.id==='home' || current.id==='sessions');
+  if(fab){
+    fab.classList.toggle('visible', current.id==='home' || current.id==='sessions' || current.id==='cardio');
+    fab.setAttribute('aria-label', current.id==='cardio' ? 'Nouvelle session cardio' : 'Nouvelle séance');
+  }
 }
 function renderNav(){
   const nav = document.getElementById('nav');
@@ -1785,18 +1865,32 @@ function renderNav(){
 function renderSectionTabs(){
   const wrap = document.getElementById('section-tabs');
   if(!wrap) return;
+  const isStats = sectionOfView(state.currentView).id==='stats';
   const tabs = visibleTabs(sectionOfView(state.currentView));
-  wrap.style.display = tabs.length>1 ? '' : 'none';
+  wrap.style.display = (tabs.length>1 || isStats) ? '' : 'none';
   const isActiveTab = t=> t.view===state.currentView && (!t.tab || t.tab===state.statsTab);
-  wrap.innerHTML = tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('');
+  // Statistiques : petit logo tout à droite des onglets = mode affiché (haltère = muscu, cœur = cardio) ; un clic bascule.
+  const cardioMode = state.statsMode==='cardio';
+  const modeBtn = isStats ? `<button type="button" class="stats-mode-btn" id="stats-mode-btn" aria-label="${cardioMode?'Mode cardio — passer à la musculation':'Mode musculation — passer au cardio'}" title="${cardioMode?'Cardio — passer à la musculation':'Muscu — passer au cardio'}">${iconSvg(cardioMode?'HEART':'DUMBBELL')}</button>` : '';
+  wrap.innerHTML = tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('') + modeBtn;
   wrap.querySelectorAll('[data-tab-idx]').forEach(b=> b.addEventListener('click', ()=>{
     const t = tabs[Number(b.dataset.tabIdx)];
     if(t.tab) state.statsTab = t.tab;
-    if(t.view===state.currentView && t.tab) showStatsTab(); else switchView(t.view);
+    if(t.view==='cardiostats' && state.currentView==='cardiostats'){ renderSectionTabs(); renderCardioStatsView(); }
+    else if(t.view===state.currentView && t.tab) showStatsTab(); else switchView(t.view);
   }));
+  const mb = document.getElementById('stats-mode-btn');
+  if(mb) mb.addEventListener('click', ()=>{
+    state.statsMode = cardioMode ? 'muscu' : 'cardio';
+    if(state.currentView==='compare'){ renderSectionTabs(); return; }
+    state.statsTab = 'summary';
+    switchView(state.statsMode==='cardio' ? 'cardiostats' : 'dashboard');
+  });
 }
 function switchView(id){
   state.currentView = id;
+  if(id==='cardiostats') state.statsMode = 'cardio';
+  else if(id==='dashboard' || id==='records') state.statsMode = 'muscu';
   sectionLastView[sectionOfView(id).id] = id;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+id).classList.add('active');
@@ -1807,8 +1901,11 @@ function switchView(id){
   if(id==='dashboard') renderDashboard();
   if(id==='compare') renderCompareView();
   if(id==='records') renderRecordsView();
-  if(id==='calendar') renderCalendarView();
+  if(id==='calendar') renderCalendarView('sessions');
+  if(id==='cardiocal') renderCalendarView('cardio');
   if(id==='sessions') renderSessionsView();
+  if(id==='cardio') renderCardioView();
+  if(id==='cardiostats') renderCardioStatsView();
   if(id==='exercises') renderExercisesView();
   if(id==='import') renderImportView();
   if(id==='backup') renderBackupView();
@@ -2661,6 +2758,27 @@ function currentStreakDays(){
   return streak;
 }
 /* ============================= ACCUEIL ============================= */
+/* Carte « Cardio » de l'accueil : semaine en cours (lundi → dimanche) + dernière session. Masquée tant qu'aucune session cardio n'existe. */
+function cardioHomeHtml(item){
+  if(!state.cardio.length) return '';
+  const monday = isoFromDate(mondayOf(todayISO()));
+  const week = state.cardio.filter(c=> c.date >= monday);
+  const km = week.reduce((t,c)=>t+c.distanceKm,0), min = week.reduce((t,c)=>t+c.durationMin,0);
+  const last = state.cardio.slice().sort((a,b)=> (b.date+(b.time||'')).localeCompare(a.date+(a.time||'')))[0];
+  return `<div class="card" style="margin-top:16px;">
+    <div class="card-head"><div class="section-title" style="margin-bottom:0;">Cardio</div><button type="button" class="btn ghost" style="padding:4px 10px;font-size:11.5px;" data-home-cardio-all>Voir tout</button></div>
+    <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:12px 0;">
+      ${item('Cette semaine', week.length, week.length>1?'sessions':'session')}
+      ${item('Distance', cardioFmtNum(km,1)+'<span style="font-size:13px;color:var(--muted);"> km</span>', 'cette semaine')}
+      ${item('Temps', cardioFormatDuration(Math.round(min)), 'cette semaine')}
+    </div>
+    <div class="clickable" data-home-cardio-last="${last.id}" role="button" tabindex="0" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 0 2px;border-top:1px solid var(--border);">
+      <span class="muted" style="font-size:12px;">Dernière session</span>
+      <span class="mono">${fmtDateShort(last.date)}</span>${cardioBadge(last)}
+      <span class="mono" style="color:var(--muted);">${last.distanceKm.toFixed(2).replace('.',',')} km · ${cardioFormatDuration(last.durationMin)} · ${cardioFormatSpeed(last)}</span>
+    </div>
+  </div>`;
+}
 function renderHomeView(keepPeriodOpen){
   const el = document.getElementById('view-home');
   if(!el) return;
@@ -2709,7 +2827,11 @@ function renderHomeView(keepPeriodOpen){
           <td class="mono" data-label="Volume">${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td>
         </tr>`).join('')}
       </tbody></table>`}
-    </div>`;
+    </div>${cardioHomeHtml(item)}`;
+  const homeCardioAll = el.querySelector('[data-home-cardio-all]');
+  if(homeCardioAll) homeCardioAll.addEventListener('click', ()=> switchView('cardio'));
+  const homeCardioLast = el.querySelector('[data-home-cardio-last]');
+  if(homeCardioLast) homeCardioLast.addEventListener('click', ()=> openCardioModal(homeCardioLast.dataset.homeCardioLast));
   document.getElementById('home-new-session').addEventListener('click', ()=> createSession());
   bindFilterChips(el);
   el.querySelectorAll('[data-session]').forEach(n=>{
@@ -2956,7 +3078,14 @@ function renderPlateauWidget(){
     wrap.innerHTML = emptyState('M4 19V10M10 19V5M16 19V13M22 19H2','Aucun plateau détecté','Tous tes exercices avec assez d\'historique continuent de progresser. 💪');
     return;
   }
-  wrap.innerHTML = exerciseHistoryTableHtml(rows);
+  wrap.innerHTML = `<table class="tbl-cards"><thead><tr><th>Exercice</th><th>Variante</th><th>Record (1RM estimée)</th><th>Séances sans record</th></tr></thead><tbody>
+  ${plateaus.map(p=>`<tr class="clickable" data-plateau-exercise="${p.ex.id}" data-plateau-variant="${escapeHtml(p.variant)}" data-plateau-pulley="${escapeHtml(p.pulley)}">
+    <td data-label="Exercice">${escapeHtml(p.ex.name)}</td>
+    <td data-label="Variante">${variantLabelHtml(p.variant, p.pulley)}</td>
+    <td class="mono" data-label="Record (1RM estimée)">${round1(p.best1rm)} kg · ${fmtDateShort(p.prDate)}</td>
+    <td class="mono" data-label="Séances sans record">${p.sessionsSince}</td>
+  </tr>`).join('')}
+  </tbody></table>`;
   wrap.querySelectorAll('[data-plateau-exercise]').forEach(tr=>{
     tr.addEventListener('click', ()=> focusExerciseProgression(tr.dataset.plateauExercise, tr.dataset.plateauVariant, tr.dataset.plateauPulley));
   });
@@ -3862,13 +3991,17 @@ function renderRecordsTable(){
 }
 
 /* ============================= CALENDAR VIEW ============================= */
-function renderCalendarView(){
-  const el = document.getElementById('view-calendar');
+function renderCalendarView(mode){
+  /* mode = vue par défaut de l'onglet d'où l'on vient : 'sessions' (Séances > Calendrier) ou 'cardio' (Cardio > Calendrier).
+     Le choix Séances / Cardio / Les deux n'est JAMAIS mémorisé : state.calView est réinitialisé à chaque ouverture. */
+  mode = mode || 'sessions'; state.calView = mode;
+  const other = document.getElementById(mode==='cardio' ? 'view-calendar' : 'view-cardiocal'); if(other) other.innerHTML = ''; // évite les ids en double
+  const el = document.getElementById(mode==='cardio' ? 'view-cardiocal' : 'view-calendar');
   el.innerHTML = `
     <div class="page-head">
       <div>
         <h1 class="page-title">Calendrier</h1>
-        <div class="page-sub">Clique sur un jour pour voir le détail de la séance</div>
+        <div class="page-sub">Clique sur un jour pour voir le détail</div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <button class="btn ghost" id="cal-today">Aujourd'hui</button>
@@ -3877,8 +4010,14 @@ function renderCalendarView(){
         <button class="btn ghost icon-btn-square" id="cal-next" aria-label="Mois suivant" title="Mois suivant">${iconSvg('M9 18l6-6-6-6')}</button>
       </div>
     </div>
+    <div class="filter-bar" style="position:static;padding-top:0;"><div class="seg-group">${[['sessions','Séances'],['cardio','Cardio'],['both','Les deux']].map(o=>`<button type="button" class="seg-btn${state.calView===o[0]?' active':''}" data-calview="${o[0]}">${o[1]}</button>`).join('')}</div></div>
     <div class="card" id="cal-grid-wrap"></div>
   `;
+  el.querySelectorAll('[data-calview]').forEach(b=> b.addEventListener('click', ()=>{
+    state.calView = b.dataset.calview;
+    el.querySelectorAll('[data-calview]').forEach(x=> x.classList.toggle('active', x===b));
+    drawCalendarGrid();
+  }));
   document.getElementById('cal-today').addEventListener('click', ()=>{ const n = new Date(); state.calMonth = n.getMonth(); state.calYear = n.getFullYear(); drawCalendarGrid(); });
   document.getElementById('cal-prev').addEventListener('click', ()=>{ shiftMonth(-1); });
   document.getElementById('cal-next').addEventListener('click', ()=>{ shiftMonth(1); });
@@ -3897,8 +4036,9 @@ function drawCalendarGrid(){
   const daysInMonth = new Date(state.calYear, state.calMonth+1, 0).getDate();
   const todayIso = todayISO();
 
-  const sessionsByDate = {};
-  state.sessions.forEach(s=>{ (sessionsByDate[s.date] = sessionsByDate[s.date]||[]).push(s); });
+  const sessionsByDate = {}, cardioByDate = {};
+  if(state.calView!=='cardio') state.sessions.forEach(s=>{ (sessionsByDate[s.date] = sessionsByDate[s.date]||[]).push(s); });
+  if(state.calView!=='sessions') state.cardio.forEach(c=>{ (cardioByDate[c.date] = cardioByDate[c.date]||[]).push(c); });
 
   let cells = '';
   DAYS_FR.forEach(d=> cells += `<div class="cal-dow">${d}</div>`);
@@ -3906,21 +4046,26 @@ function drawCalendarGrid(){
   for(let d=1; d<=daysInMonth; d++){
     const iso = `${state.calYear}-${String(state.calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const daySessions = sessionsByDate[iso] || [];
+    const dayCardio = cardioByDate[iso] || [];
+    const hasAny = daySessions.length + dayCardio.length > 0;
     const isToday = iso===todayIso;
     const types = daySessions.map(s=>sessionTypeInfo(s.name));
     let cellVars = '';
-    if(types.length===1){
+    if(types.length===1 && !dayCardio.length){
       cellVars = `--sb-bg:${types[0].bg};--sb-border:${types[0].border};--sb-color:${types[0].color};`;
+    } else if(!types.length && dayCardio.length){
+      cellVars = `--sb-bg:rgba(91,132,166,0.10);--sb-border:rgba(91,132,166,0.35);--sb-color:var(--steel);`;
     }
-    const pills = types.map(t=>`<span class="cal-type-pill" style="--sb-color:${t.color};--sb-bg:${t.bgStrong};">${escapeHtml(t.label)}</span>`).join('');
-    cells += `<div class="cal-cell ${daySessions.length? 'has-session':''} ${isToday?'is-today':''}" ${daySessions.length?`data-day="${iso}" style="${cellVars}"`:''}>
+    const pills = types.map(t=>`<span class="cal-type-pill" style="--sb-color:${t.color};--sb-bg:${t.bgStrong};">${escapeHtml(t.label)}</span>`).join('')
+      + dayCardio.map(c=>`<span class="cal-type-pill" title="${CARDIO_KINDS[c.kind]}" style="--sb-color:var(--steel);--sb-bg:rgba(91,132,166,0.22);">${CARDIO_ACTIVITIES[c.activity]}</span>`).join('');
+    cells += `<div class="cal-cell ${hasAny? 'has-session':''} ${isToday?'is-today':''}" ${hasAny?`data-day="${iso}" style="${cellVars}"`:''}>
       <div class="cal-daynum">${d}</div>
-      ${daySessions.length? `<div class="cal-types">${pills}</div>` : ''}
+      ${hasAny? `<div class="cal-types">${pills}</div>` : ''}
     </div>`;
   }
   document.getElementById('cal-grid-wrap').innerHTML = `<div class="cal-grid">${cells}</div>`;
   document.querySelectorAll('.cal-cell[data-day]').forEach(c=>{
-    c.addEventListener('click', ()=> openDayModal(c.dataset.day, sessionsByDate[c.dataset.day]));
+    c.addEventListener('click', ()=> openDayModal(c.dataset.day, sessionsByDate[c.dataset.day]||[], cardioByDate[c.dataset.day]||[]));
   });
 
   if(!document.getElementById('cal-style')){
@@ -3950,13 +4095,28 @@ function drawCalendarGrid(){
     document.head.appendChild(st);
   }
 }
-function openDayModal(iso, sessions){
+function cardioDetailHtml(c){
+  const hr = (c.avgHR!=null ? `<span>❤ ${c.avgHR} bpm moy.</span>` : '') + (c.maxHR!=null ? `<span>❤ ${c.maxHR} bpm max</span>` : '');
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div>${cardioBadge(c)}${c.time?` <span class="muted">${escapeHtml(c.time)}</span>`:''}</div>
+      <button class="btn ghost" style="padding:4px 10px;font-size:11.5px;" onclick="openCardioModal('${c.id}')">Modifier</button>
+    </div>
+    <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);border-top:1px solid var(--border);padding:8px 0;">
+      <span>⏱ ${cardioFormatDuration(c.durationMin)}</span><span>📏 ${c.distanceKm.toFixed(2).replace('.',',')} km</span><span>${cardioFormatSpeed(c)}</span><span>${cardioFormatPace(c)}</span>
+      ${c.kcal!=null?`<span>🔥 ${c.kcal} kcal</span>`:''}${hr}
+    </div>
+    ${c.place?`<div style="font-size:13px;color:var(--muted);">Lieu : ${escapeHtml(c.place)}</div>`:''}
+    ${c.note?`<div style="margin-top:6px;font-size:13px;color:var(--muted);">Note : ${escapeHtml(c.note)}</div>`:''}`;
+}
+function openDayModal(iso, sessions, cardioList){
+  const blocks = (sessions||[]).map(s=>sessionDetailHtml(s)).concat((cardioList||[]).map(c=>cardioDetailHtml(c)));
   openModal(`
     <div class="modal-head">
       <h3 style="font-size:24px;">${fmtDateFR(iso)}</h3>
       <span class="modal-close" onclick="closeModal()">&times;</span>
     </div>
-    ${sessions.map(s=>sessionDetailHtml(s)).join('<div style="height:14px;"></div>')}
+    ${blocks.join('<div style="height:14px;"></div>')}
   `);
 }
 function openSessionModal(sid){
@@ -4005,8 +4165,307 @@ async function deleteSession(sid){
   closeModal();
   showToast('Séance supprimée');
   renderNav();
-  if(state.currentView==='calendar') drawCalendarGrid();
+  if(state.currentView==='calendar' || state.currentView==='cardiocal') drawCalendarGrid();
   if(state.currentView==='dashboard') renderDashboard(); if(state.currentView==='home') renderHomeView();
+}
+
+/* ============================= CARDIO VIEW ============================= */
+const CARDIO_PERIODS = [['all','Tout'],['7','7 j'],['30','30 j'],['90','90 j'],['365','1 an']];
+state.cardioFilter = {period:'all', kind:'all', activity:'all'}; // filtres de la liste cardio (non mémorisés)
+function cardioBadge(c){
+  return `<span class="badge cardio-${c.kind}">${CARDIO_KINDS[c.kind]}</span> <span class="status-pill">${CARDIO_ACTIVITIES[c.activity]}</span>`;
+}
+function filteredCardio(){
+  const f = state.cardioFilter;
+  let from = null;
+  if(f.period!=='all'){ const d = new Date(); d.setDate(d.getDate() - Number(f.period)); from = isoFromDate(d); }
+  return state.cardio.filter(c=>
+    (!from || c.date >= from) && (f.kind==='all' || c.kind===f.kind) && (f.activity==='all' || c.activity===f.activity)
+  ).sort((a,b)=> (b.date+(b.time||'')).localeCompare(a.date+(a.time||'')));
+}
+function cardioSegGroup(key, opts){
+  return `<div class="seg-group">${opts.map(o=>`<button type="button" class="seg-btn${state.cardioFilter[key]===o[0]?' active':''}" data-cf="${key}" data-val="${o[0]}">${o[1]}</button>`).join('')}</div>`;
+}
+/* ----- Cardio : formulaire de création / édition ----- */
+let cardioDraft = null;
+function cardioDraftDuration(){ return (Number(cardioDraft.h)||0)*60 + (Number(cardioDraft.m)||0); }
+function openCardioModal(id){
+  const existing = id ? state.cardio.find(c=>c.id===id) : null;
+  if(id && !existing) return;
+  const dur = existing ? existing.durationMin : 0;
+  cardioDraft = existing ? {
+    id: existing.id, date: existing.date, time: existing.time||'', kind: existing.kind, activity: existing.activity,
+    h: Math.floor(dur/60) || '', m: Math.round(dur%60) || '', distanceKm: existing.distanceKm, place: existing.place||'',
+    avgHR: existing.avgHR ?? '', maxHR: existing.maxHR ?? '', kcal: existing.kcal ?? '', note: existing.note||''
+  } : { id:null, date: todayISO(), time:'', kind:'treadmill', activity:'run', h:'', m:'', distanceKm:'', place:'', avgHR:'', maxHR:'', kcal:'', note:'' };
+  renderCardioModal(!!existing);
+}
+function renderCardioModal(isEdit){
+  const d = cardioDraft;
+  const seg = (key, opts)=> `<div class="seg-group">${opts.map(o=>`<button type="button" class="seg-btn${d[key]===o[0]?' active':''}" data-cd-seg="${key}" data-val="${o[0]}" style="flex:1;">${o[1]}</button>`).join('')}</div>`;
+  const num = (key, label, extra)=> `<div><label class="field-label">${label}</label><input type="text" inputmode="${extra||'numeric'}" data-cd="${key}" value="${d[key]===''||d[key]==null?'':escapeHtml(String(d[key]))}" autocomplete="off"></div>`;
+  openModal(`
+    <div class="modal-head"><h3 style="font-size:22px;">${isEdit?'Modifier la session cardio':'Nouvelle session cardio'}</h3><span class="modal-close" onclick="closeModal()">&times;</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><label class="field-label">Date</label><input type="date" data-cd="date" value="${escapeHtml(d.date)}"></div>
+      <div><label class="field-label">Heure (facultatif)</label><input type="text" inputmode="numeric" placeholder="hh:mm" data-cd="time" value="${escapeHtml(d.time)}"></div>
+    </div>
+    <label class="field-label">Type</label><div style="margin-bottom:12px;">${seg('kind',[['treadmill','Tapis'],['outdoor','Extérieur']])}</div>
+    <label class="field-label">Activité</label><div style="margin-bottom:12px;">${seg('activity',[['walk','Marche'],['run','Course']])}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+      ${num('h','Durée (h)')}${num('m','Durée (min)')}${num('distanceKm','Distance (km)','decimal')}
+    </div>
+    <div id="cardio-calc" class="muted" style="margin:-4px 0 14px;font-size:13px;"></div>
+    <div id="cardio-place-wrap" style="margin-bottom:12px;${d.kind==='outdoor'?'':'display:none;'}"><label class="field-label">Emplacement (facultatif)</label><input type="text" data-cd="place" maxlength="120" value="${escapeHtml(d.place)}" placeholder="ex. Parc, quartier, parcours…"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+      ${num('avgHR','FC moy.')}${num('maxHR','FC max')}${num('kcal','Calories')}
+    </div>
+    <div style="margin-bottom:16px;"><label class="field-label">Note (facultatif)</label><textarea data-cd="note" rows="2" maxlength="500">${escapeHtml(d.note)}</textarea></div>
+    <div class="modal-actions-sticky">
+      ${isEdit?'<button type="button" class="btn danger" id="cardio-del">Supprimer</button>':'<span></span>'}
+      <div style="display:flex;gap:10px;flex:1;justify-content:flex-end;"><button type="button" class="btn" onclick="closeModal()">Annuler</button><button type="button" class="btn primary" id="cardio-save">Enregistrer</button></div>
+    </div>`, false, 'session-modal');
+  const root = document.getElementById('modal-content');
+  const refreshCalc = ()=>{
+    const c = {durationMin: cardioDraftDuration(), distanceKm: cardioNum(d.distanceKm)};
+    const el = document.getElementById('cardio-calc');
+    if(el) el.textContent = (c.durationMin>0 && c.distanceKm>0) ? `Vitesse moyenne ${cardioFormatSpeed(c)} · Allure ${cardioFormatPace(c)}` : 'Vitesse et allure calculées automatiquement.';
+  };
+  root.querySelectorAll('[data-cd]').forEach(inp=> inp.addEventListener('input', ()=>{ d[inp.dataset.cd] = inp.value; refreshCalc(); }));
+  root.querySelectorAll('[data-cd-seg]').forEach(b=> b.addEventListener('click', ()=>{
+    d[b.dataset.cdSeg] = b.dataset.val;
+    root.querySelectorAll(`[data-cd-seg="${b.dataset.cdSeg}"]`).forEach(x=> x.classList.toggle('active', x===b));
+    if(b.dataset.cdSeg==='kind') document.getElementById('cardio-place-wrap').style.display = d.kind==='outdoor' ? '' : 'none';
+  }));
+  document.getElementById('cardio-save').addEventListener('click', saveCardioDraft);
+  const del = document.getElementById('cardio-del');
+  if(del) del.addEventListener('click', ()=> deleteCardioSession(d.id));
+  refreshCalc();
+}
+async function saveCardioDraft(){
+  const d = cardioDraft;
+  const dur = cardioDraftDuration(), dist = cardioNum(d.distanceKm);
+  if(!d.date){ showToast('Choisis une date', 'bad'); return; }
+  if(!(dur>0)){ showToast('Indique la durée', 'bad'); return; }
+  if(!(dist>0)){ showToast('Indique la distance', 'bad'); return; }
+  const t = String(d.time||'').trim().replace('h',':');
+  if(t && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(t)){ showToast("Heure invalide (format hh:mm)", 'bad'); return; }
+  const avg = cardioNum(d.avgHR), max = cardioNum(d.maxHR);
+  if(avg!=null && max!=null && max<avg){ showToast('La FC max doit être supérieure à la FC moyenne', 'bad'); return; }
+  const rec = normalizeCardioSession({
+    id: d.id || cardioNewId(), date: d.date, time: t ? t.padStart(5,'0') : '', kind: d.kind, activity: d.activity,
+    durationMin: dur, distanceKm: dist, place: d.place, avgHR: avg, maxHR: max, kcal: cardioNum(d.kcal), note: d.note
+  });
+  const i = state.cardio.findIndex(c=>c.id===rec.id);
+  if(i>=0) state.cardio[i] = rec; else state.cardio.push(rec);
+  await saveCardio();
+  await closeModal();
+  showToast(i>=0 ? 'Session cardio modifiée' : 'Session cardio enregistrée', 'good');
+  refreshCardioViews();
+}
+async function deleteCardioSession(id){
+  const c = state.cardio.find(x=>x.id===id);
+  if(!c) return;
+  if(!confirm('Supprimer cette session cardio ?')) return;
+  state.cardio = state.cardio.filter(x=>x.id!==id);
+  await saveCardio();
+  await closeModal();
+  refreshCardioViews();
+  showToast('Session cardio supprimée', null, {label:'Annuler', onClick: async ()=>{
+    state.cardio.push(c); await saveCardio();
+    refreshCardioViews();
+  }});
+}
+
+function cardioFilterBarHtml(){
+  return `<div class="filter-bar">${cardioSegGroup('period',CARDIO_PERIODS)}${cardioSegGroup('kind',[['all','Tous'],['treadmill','Tapis'],['outdoor','Extérieur']])}${cardioSegGroup('activity',[['all','Marche + course'],['walk','Marche'],['run','Course']])}</div>`;
+}
+function bindCardioFilters(el){
+  el.querySelectorAll('[data-cf]').forEach(b=> b.addEventListener('click', ()=>{
+    state.cardioFilter[b.dataset.cf] = b.dataset.val; refreshCardioViews();
+  }));
+}
+function refreshCardioViews(){
+  if(state.currentView==='home') renderHomeView();
+  if(state.currentView==='calendar' || state.currentView==='cardiocal') drawCalendarGrid();
+  if(state.currentView==='cardio') renderCardioView();
+  else if(state.currentView==='cardiostats') renderCardioStatsView();
+}
+/* ----- Cardio : onglet Stats ----- */
+function cardioFmtNum(v, d){ return v.toLocaleString('fr-FR',{minimumFractionDigits:d||0, maximumFractionDigits:d||0}); }
+function cardioWidget(label, value, sub, accent){
+  return `<div class="stat-group${accent?' accent':''}"><div class="stat-group-label">${label}</div><div class="stat-group-item"><div class="value">${value}</div><div class="sub">${sub||''}</div></div></div>`;
+}
+function cardioUnit(v, u){ return `${v}<span style="font-size:13px;color:var(--muted);"> ${u}</span>`; }
+function cardioSessionsPerWeek(list){
+  if(!list.length) return null;
+  const f = state.cardioFilter;
+  let days;
+  if(f.period!=='all') days = Number(f.period);
+  else {
+    const first = list.reduce((m,c)=> c.date<m ? c.date : m, list[0].date);
+    days = Math.max(7, Math.round((new Date(todayISO()) - new Date(first))/86400000) + 1);
+  }
+  return list.length / (days/7);
+}
+function cardioWeeklyBuckets(list, key){
+  if(!list.length) return [];
+  const map = {};
+  list.forEach(c=>{ const k = isoFromDate(mondayOf(c.date)); map[k] = (map[k]||0) + (c[key]||0); });
+  const keys = Object.keys(map).sort();
+  const out = [];
+  let cur = new Date(keys[0]); const last = new Date(keys[keys.length-1]);
+  while(cur <= last){ const k = isoFromDate(cur); out.push({label: fmtDateShort(k), v: map[k]||0}); cur.setDate(cur.getDate()+7); }
+  return out.slice(-26);
+}
+function cardioKpiGroup(label, items){
+  const one = it => `<div class="stat-group-item${it.id?' clickable':''}"${it.id?` data-cardio-open="${it.id}"`:''}><div class="value">${it.val}</div><div class="sub">${it.sub||''}</div></div>`;
+  let rows = '';
+  for(let i=0;i<items.length;i+=2){
+    rows += `<div class="stat-group-row">${one(items[i])}${items[i+1] ? '<div class="stat-group-divider"></div>'+one(items[i+1]) : ''}</div>`;
+  }
+  return `<div class="stat-group"><div class="stat-group-label">${label}</div>${rows}</div>`;
+}
+function renderCardioStatsView(){
+  const el = document.getElementById('view-cardiostats');
+  if(state.statsTab!=='summary' && state.statsTab!=='heart') state.statsTab = 'summary';
+  const tab = state.statsTab;
+  const list = filteredCardio();
+  const none = '—';
+  const kcalList = list.filter(c=>c.kcal!=null);
+  const hrList = list.filter(c=>c.avgHR!=null), hrMaxList = list.filter(c=>c.maxHR!=null);
+  const ext = (arr, fn, max)=> arr.reduce((b,c)=> (max ? fn(c)>fn(b) : fn(c)<fn(b)) ? c : b, arr[0]);
+  const where = c => `${fmtDateShort(c.date)} · ${CARDIO_KINDS[c.kind]} ${CARDIO_ACTIVITIES[c.activity].toLowerCase()}`;
+  const sub = (label, c)=> c ? `${label}<br>${where(c)}` : label;
+  let body;
+  if(!state.cardio.length) body = `<div class="card">${emptyState('HEART','Aucune session cardio','Les statistiques apparaîtront dès ta première session.')}</div>`;
+  else if(!list.length) body = `<div class="card">${emptyState('HEART','Aucune session avec ces filtres','Change la période, le type ou l\'activité.')}</div>`;
+  else if(tab==='summary'){
+    const totKm = list.reduce((t,c)=>t+c.distanceKm,0), totMin = list.reduce((t,c)=>t+c.durationMin,0);
+    const kcalTot = kcalList.reduce((t,c)=>t+c.kcal,0);
+    const agg = {durationMin: totMin, distanceKm: totKm};
+    const spw = cardioSessionsPerWeek(list);
+    const km = c=>c.distanceKm, mn = c=>c.durationMin, sp = c=>cardioSpeedKmh(c);
+    const dMax = ext(list,km,true), dMin = ext(list,km,false), tMax = ext(list,mn,true), tMin = ext(list,mn,false);
+    const sMax = ext(list,sp,true), sMin = ext(list,sp,false);
+    const kMax = kcalList.length ? ext(kcalList,c=>c.kcal,true) : null, kMin = kcalList.length ? ext(kcalList,c=>c.kcal,false) : null;
+    const fKm = v=> cardioUnit(cardioFmtNum(v,1),'km');
+    const fSp = v=> cardioUnit(cardioFmtNum(v,1),'km/h');
+    const fKc = v=> cardioUnit(Math.round(v).toLocaleString('fr-FR'),'kcal');
+    body = `<div class="stat-grid">
+      ${cardioKpiGroup('Sessions', [
+        {val:String(list.length), sub:'Sessions sur ces filtres'},
+        {val: spw==null?none:cardioFmtNum(spw,1), sub:'Moyenne / semaine sur ces filtres'},
+        {val:String(state.cardio.length), sub:'Total depuis le début'}
+      ])}
+      ${cardioKpiGroup('Distance', [
+        {val:fKm(totKm), sub:'sur ces filtres'},
+        {val:fKm(totKm/list.length), sub:'Moyenne / session'},
+        {val:fKm(dMax.distanceKm), sub:sub('Distance max',dMax), id:dMax.id},
+        {val:fKm(dMin.distanceKm), sub:sub('Distance min',dMin), id:dMin.id}
+      ])}
+      ${cardioKpiGroup('Temps', [
+        {val:cardioFormatDuration(Math.round(totMin)), sub:'sur ces filtres'},
+        {val:cardioFormatDuration(Math.round(totMin/list.length)), sub:'Moyenne / session'},
+        {val:cardioFormatDuration(tMax.durationMin), sub:sub('Durée max',tMax), id:tMax.id},
+        {val:cardioFormatDuration(tMin.durationMin), sub:sub('Durée min',tMin), id:tMin.id}
+      ])}
+      ${cardioKpiGroup('Calories', kcalList.length ? [
+        {val:fKc(kcalTot), sub:`sur ${kcalList.length} session(s) renseignée(s)`},
+        {val:fKc(kcalTot/kcalList.length), sub:'Moyenne / session'},
+        {val:fKc(kMax.kcal), sub:sub('Calories max',kMax), id:kMax.id},
+        {val:fKc(kMin.kcal), sub:sub('Calories min',kMin), id:kMin.id}
+      ] : [{val:none, sub:'aucune calorie renseignée'}])}
+      ${cardioKpiGroup('Vitesse', [
+        {val:fSp(cardioSpeedKmh(agg)), sub:'Vitesse moyenne'},
+        {val:cardioFormatPace(agg), sub:'Allure moyenne'},
+        {val:fSp(cardioSpeedKmh(sMax)), sub:sub('Plus rapide',sMax), id:sMax.id},
+        {val:fSp(cardioSpeedKmh(sMin)), sub:sub('Plus lente',sMin), id:sMin.id}
+      ])}
+    </div>
+    <div class="grid-2-even" style="margin-top:0;">
+      <div class="card"><div class="section-title">Sessions par jour de la semaine</div><div style="height:230px;"><canvas id="chart-cardio-weekday"></canvas></div></div>
+      <div class="card"><div class="section-title">Distance par semaine</div><div style="height:230px;"><canvas id="chart-cardio-week"></canvas></div></div>
+    </div>
+    <div class="grid-2-even">
+      <div class="card"><div class="section-title">Temps par semaine</div><div style="height:230px;"><canvas id="chart-cardio-time"></canvas></div></div>
+      <div class="card"><div class="section-title">Calories par semaine</div>${kcalList.length?'<div style="height:230px;"><canvas id="chart-cardio-kcal"></canvas></div>':emptyState('HEART','Rien à afficher','Aucune calorie renseignée sur ces filtres.')}</div>
+    </div>
+    <div class="card" style="margin-top:16px;"><div class="section-title">Vitesse moyenne par session</div><div style="height:230px;"><canvas id="chart-cardio-speed"></canvas></div></div>`;
+  } else {
+    if(!hrList.length && !hrMaxList.length) body = `<div class="card" style="margin-top:16px;">${emptyState('HEART','Rien à afficher','Aucune fréquence cardiaque renseignée sur ces filtres.')}</div>`;
+    else {
+      const avgHr = hrList.length ? hrList.reduce((t,c)=>t+c.avgHR,0)/hrList.length : null;
+      const bpm = v=> cardioUnit(Math.round(v),'bpm');
+      const mx = hrMaxList.length ? ext(hrMaxList,c=>c.maxHR,true) : null;
+      const aHi = hrList.length ? ext(hrList,c=>c.avgHR,true) : null, aLo = hrList.length ? ext(hrList,c=>c.avgHR,false) : null;
+      body = `<div class="stat-grid">
+        ${cardioKpiGroup('Fréquence cardiaque', [
+          {val: avgHr!=null?bpm(avgHr):none, sub: hrList.length?`FC moy. sur ${hrList.length} session(s) renseignée(s)`:'aucune FC moyenne renseignée'},
+          {val: mx?bpm(mx.maxHR):none, sub: mx?sub('FC max enregistrée',mx):'aucune FC max renseignée', id: mx?mx.id:''},
+          {val: aHi?bpm(aHi.avgHR):none, sub: aHi?sub('FC moy. la plus haute',aHi):'', id: aHi?aHi.id:''},
+          {val: aLo?bpm(aLo.avgHR):none, sub: aLo?sub('FC moy. la plus basse',aLo):'', id: aLo?aLo.id:''}
+        ])}
+      </div>
+      <div class="card"><div class="section-title">Fréquence cardiaque par session</div><div style="height:260px;"><canvas id="chart-cardio-hr"></canvas></div></div>`;
+    }
+  }
+  el.innerHTML = `
+    <div class="page-head"><div><h1 class="page-title">Statistiques cardio</h1><div class="page-sub">Calculées sur les sessions correspondant aux filtres.</div></div></div>
+    ${state.cardio.length?cardioFilterBarHtml():''}${body}`;
+  bindCardioFilters(el);
+  el.querySelectorAll('[data-cardio-open]').forEach(n=> n.addEventListener('click', ()=> openCardioModal(n.dataset.cardioOpen)));
+  if(!list.length) return;
+  const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim() || cssVar('--accent');
+  const asc = list.slice().sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+  const labels = asc.map(c=>fmtDateShort(c.date));
+  const barOpts = (fmt, extra)=>({ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:ctx=> fmt(ctx.parsed.y) } } }, scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(),Object.assign({beginAtZero:true},extra||{})) } });
+  const weekly = (key)=>{ const b = cardioWeeklyBuckets(list, key); return {labels:b.map(x=>x.label), data:b.map(x=>x.v)}; };
+  if(tab==='summary'){
+    const counts = [0,0,0,0,0,0,0];
+    list.forEach(c=>{ counts[(new Date(c.date+'T00:00:00').getDay()+6)%7]++; });
+    renderChartSafe('chart-cardio-weekday', { type:'bar', data:{ labels:DAYS_FR, datasets:[{ label:'Sessions', data:counts, backgroundColor:COLORS.steel, borderRadius:4, maxBarThickness:34 }] }, options:barOpts(v=>`${v} session${v>1?'s':''}`, {ticks:Object.assign({}, chartGridOpts().ticks, {stepSize:1})}) });
+    const wk = weekly('distanceKm');
+    renderChartSafe('chart-cardio-week', { type:'bar', data:{ labels:wk.labels, datasets:[{ label:'km', data:wk.data.map(v=>Math.round(v*10)/10), backgroundColor:accent, borderRadius:4, maxBarThickness:34 }] }, options:barOpts(v=>`${v.toLocaleString('fr-FR')} km`) });
+    const wt = weekly('durationMin');
+    renderChartSafe('chart-cardio-time', { type:'bar', data:{ labels:wt.labels, datasets:[{ label:'h', data:wt.data.map(v=>Math.round(v/60*100)/100), backgroundColor:COLORS.duration, borderRadius:4, maxBarThickness:34 }] }, options:barOpts(v=>cardioFormatDuration(Math.round(v*60)), {ticks:Object.assign({}, chartGridOpts().ticks, {callback:v=>v+' h'})}) });
+    if(kcalList.length){
+      const wc = weekly('kcal');
+      renderChartSafe('chart-cardio-kcal', { type:'bar', data:{ labels:wc.labels, datasets:[{ label:'kcal', data:wc.data.map(v=>Math.round(v)), backgroundColor:COLORS.warn, borderRadius:4, maxBarThickness:34 }] }, options:barOpts(v=>`${v.toLocaleString('fr-FR')} kcal`) });
+    }
+    renderChartSafe('chart-cardio-speed', {
+      type:'line',
+      data:{ labels, datasets:[{ label:'km/h', data: asc.map(c=>Math.round(cardioSpeedKmh(c)*10)/10), borderColor:accent, backgroundColor:accent, tension:0.25, pointRadius:3 }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:ctx=> `${ctx.parsed.y.toLocaleString('fr-FR')} km/h` } } }, scales:{ x:chartGridOpts(), y:chartGridOpts() } }
+    });
+  } else if(document.getElementById('chart-cardio-hr')){
+    renderChartSafe('chart-cardio-hr', {
+      type:'line',
+      data:{ labels, datasets:[
+        { label:'FC moy.', data: asc.map(c=>c.avgHR), borderColor:accent, backgroundColor:accent, tension:0.25, pointRadius:3, spanGaps:true },
+        { label:'FC max', data: asc.map(c=>c.maxHR), borderColor:COLORS.bad, backgroundColor:COLORS.bad, borderDash:[5,3], tension:0.25, pointRadius:3, spanGaps:true }
+      ] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:true, labels:{color:COLORS.muted, boxWidth:12}} }, scales:{ x:chartGridOpts(), y:chartGridOpts() } }
+    });
+  }
+}
+
+function renderCardioView(){
+  const el = document.getElementById('view-cardio');
+  const list = filteredCardio();
+  const hr = c => (c.avgHR!=null || c.maxHR!=null) ? `${c.avgHR!=null?c.avgHR+'♥':'—'}${c.maxHR!=null?' / '+c.maxHR+'♥max':''}` : '—';
+  const totalKm = list.reduce((t,c)=>t+c.distanceKm,0), totalMin = list.reduce((t,c)=>t+c.durationMin,0);
+  let body;
+  if(!state.cardio.length) body = emptyState('HEART','Aucune session cardio','Tes sessions cardio apparaîtront ici.');
+  else if(!list.length) body = emptyState('HEART','Aucune session avec ces filtres','Change la période, le type ou l\'activité.');
+  else body = `<table class="tbl-cards"><thead><tr><th>Date</th><th>Session</th><th>Durée</th><th>Distance</th><th>Vitesse</th><th>Allure</th><th>Fréq. cardiaque</th><th>Calories</th></tr></thead><tbody>${list.map(c=>`<tr class="clickable" data-edit-cardio="${c.id}"><td class="mono" data-label="Date">${fmtDateShort(c.date)}${c.time?' <span class="muted">'+escapeHtml(c.time)+'</span>':''}</td><td data-label="Session">${cardioBadge(c)}${c.place?' <span class="muted">'+escapeHtml(c.place)+'</span>':''}</td><td class="mono" data-label="Durée">${cardioFormatDuration(c.durationMin)}</td><td class="mono" data-label="Distance">${c.distanceKm.toFixed(2).replace('.',',')} km</td><td class="mono" data-label="Vitesse">${cardioFormatSpeed(c)}</td><td class="mono" data-label="Allure">${cardioFormatPace(c)}</td><td class="mono" data-label="Fréq. cardiaque">${hr(c)}</td><td class="mono" data-label="Calories">${c.kcal!=null?c.kcal+' kcal':'—'}</td></tr>`).join('')}</tbody></table>`;
+  el.innerHTML = `
+    <div class="page-head"><div><h1 class="page-title">Cardio</h1><div class="page-sub">Tes sessions de marche et de course, sur tapis ou en extérieur.${state.cardio.length?` — ${list.length} session${list.length>1?'s':''} · ${totalKm.toFixed(1).replace('.',',')} km · ${cardioFormatDuration(totalMin)}`:''}</div></div><button class="btn primary" id="new-cardio-btn">+ Session cardio</button></div>
+    ${state.cardio.length?cardioFilterBarHtml():''}
+    <div class="card">${body}</div>`;
+  document.getElementById('new-cardio-btn').addEventListener('click', ()=> openCardioModal());
+  el.querySelectorAll('[data-edit-cardio]').forEach(r=> r.addEventListener('click', ()=> openCardioModal(r.dataset.editCardio)));
+  bindCardioFilters(el);
 }
 
 /* ============================= SESSIONS VIEW / LIVE EDITOR ============================= */
@@ -4228,7 +4687,7 @@ async function disableCoopMode(sid){
   showToast(`Séance scindée entre ${names}`, 'good');
   renderNav();
   renderSessionsView();
-  if(state.currentView==='calendar') drawCalendarGrid();
+  if(state.currentView==='calendar' || state.currentView==='cardiocal') drawCalendarGrid();
   if(state.currentView==='dashboard') renderDashboard(); if(state.currentView==='home') renderHomeView();
 }
 // Scrolle un champ pour le garder visible une fois le clavier mobile ouvert.
@@ -5817,7 +6276,7 @@ function renderBackupView(){
       </div>
     </div>
     <details class="details-block" style="border-color:rgba(212,106,106,0.3);"><summary style="color:var(--bad);">Zone de danger</summary><div class="details-body">
-      <p style="color:var(--muted);font-size:13.5px;margin-top:0;">Supprime uniquement les séances du profil choisi ci-dessous. La base d'exercices (partagée) et les séances des autres profils ne sont pas touchées. Pense à exporter une sauvegarde avant.</p>
+      <p style="color:var(--muted);font-size:13.5px;margin-top:0;">Supprime uniquement les séances et sessions cardio du profil choisi ci-dessous. La base d'exercices (partagée) et les séances des autres profils ne sont pas touchées. Pense à exporter une sauvegarde avant.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <select id="reset-user-select" style="max-width:220px;">
           ${users.map(u=>`<option value="${u.id}" ${u.id===currentUserId()?'selected':''}>${escapeHtml(u.name)}</option>`).join('')}
@@ -5852,7 +6311,8 @@ function renderBackupView(){
       const usersData = [];
       for(const u of users){
         const sessions = (u.id === currentUserId()) ? state.sessions : await readSessionsForUser(u.id);
-        usersData.push({ id:u.id, name:u.name, color:u.color, sessions });
+        const cardio = (u.id === currentUserId()) ? state.cardio : await readCardioForUser(u.id);
+        usersData.push({ id:u.id, name:u.name, color:u.color, sessions, cardio });
       }
       const size = byteSize({ version:3, type:'fonte-global-backup', exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, users: usersData });
       const n = document.getElementById('backup-all-size');
@@ -6090,7 +6550,8 @@ async function buildGlobalBackupPayload(){
   const usersData = [];
   for(const u of loadUsers()){
     const sessions = (u.id === currentUserId()) ? state.sessions : await readSessionsForUser(u.id);
-    usersData.push({ id:u.id, name:u.name, color:u.color, sessions });
+    const cardio = (u.id === currentUserId()) ? state.cardio : await readCardioForUser(u.id);
+    usersData.push({ id:u.id, name:u.name, color:u.color, sessions, cardio });
   }
   return { version:3, type:'fonte-global-backup', exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, users: usersData };
 }
@@ -6171,6 +6632,8 @@ async function applyGlobalBackupData(data){
   for(const u of incomingUsers){
     const sessions = Array.isArray(u.sessions) ? u.sessions : [];
     await writeSessionsForUser(u.id, sessions);
+    // Cardio : une ancienne sauvegarde sans 'cardio' donne simplement une liste vide.
+    await writeCardioForUser(u.id, Array.isArray(u.cardio) ? u.cardio : []);
   }
 
   // Recharge l'état courant : si le profil actif n'existe plus dans la sauvegarde, on bascule sur le premier.
@@ -6178,6 +6641,7 @@ async function applyGlobalBackupData(data){
   state.currentUserId = stillExists ? currentUserId() : (newUsers[0] ? newUsers[0].id : DEFAULT_USER_ID);
   setActiveUserId(state.currentUserId);
   state.sessions = await readStored('sessions') || [];
+  state.cardio = normalizeCardioList(await readStored('cardio'));
   migratePulleyData();
 
   applyUserTheme();
@@ -6186,7 +6650,7 @@ async function applyGlobalBackupData(data){
   renderBackupView();
 }
 function exportBackup(){
-  const payload = { version:2, exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, sessions: state.sessions };
+  const payload = { version:2, exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, sessions: state.sessions, cardio: state.cardio };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -6212,7 +6676,7 @@ function getLocalStorageUsage(){
 function exportBackupCompressed(){
   // Sauvegarde compressée : même contenu que exportBackup(), mais encodé avec LZString pour
   // produire un fichier plus léger. Extension .fonte pour la distinguer d'un JSON classique.
-  const payload = { version:2, exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, sessions: state.sessions };
+  const payload = { version:2, exportedAt: new Date().toISOString(), exercises: state.exercises, pulleyTypes: PULLEYS, sessions: state.sessions, cardio: state.cardio };
   const raw = JSON.stringify(payload);
   let content, ext;
   if(window.LZString){
@@ -6253,6 +6717,9 @@ function handleRestoreFile(e){
     if(!confirm(`Restaurer cette sauvegarde remplacera les séances du profil actif (${state.sessions.length} → ${data.sessions.length}) ET la base d'exercices partagée entre les deux profils. Continuer ?`)) return;
     state.exercises = data.exercises;
     state.sessions = data.sessions;
+    // Cardio : remplacé seulement si le fichier en contient (ancienne sauvegarde = cardio actuel conservé).
+    const restoreCardio = Array.isArray(data.cardio);
+    if(restoreCardio) state.cardio = normalizeCardioList(data.cardio);
     state.exercises.forEach(e=>{ e.variants=Array.isArray(e.variants)?e.variants:[]; });
     // Types de poulie : fusionnés avec les types par défaut pour ne jamais perdre 'normal'/'nouvelles'/'matrix'
     // même si le fichier de sauvegarde est ancien (sans pulleyTypes) ou incomplet.
@@ -6263,6 +6730,7 @@ function handleRestoreFile(e){
     migratePulleyData();
     await saveExercises();
     await saveSessions();
+    if(restoreCardio) await saveCardio();
     showToast('Sauvegarde restaurée', 'good');
     renderNav();
     renderBackupView();
@@ -6270,13 +6738,18 @@ function handleRestoreFile(e){
   reader.readAsText(f);
 }
 async function resetAllData(){
-  if(!confirm("Supprimer définitivement les séances du profil actif ET la base d'exercices partagée entre les deux profils ?")) return;
+  if(!confirm("Supprimer définitivement les séances et sessions cardio de TOUS les profils ET la base d'exercices partagée ?")) return;
   const typed = prompt("Pour confirmer, tape le mot SUPPRIMER (en majuscules) :");
   if(typed === null || typed.trim() !== 'SUPPRIMER'){ showToast('Réinitialisation annulée'); return; }
   state.exercises = seedExercises();
   state.sessions = [];
+  state.cardio = [];
   await saveExercises();
-  await saveSessions();
+  for(const u of loadUsers()){
+    await writeSessionsForUser(u.id, []);
+    await writeCardioForUser(u.id, []);
+  }
+  exAllSessions = null;
   showToast('Données réinitialisées');
   renderNav();
   renderBackupView();
@@ -6287,15 +6760,18 @@ async function resetUserData(userId){
   const users = loadUsers();
   const user = users.find(u=>u.id===userId);
   if(!user) return;
-  if(!confirm(`Supprimer définitivement toutes les séances de "${user.name}" ? Les exercices partagés et l'autre profil ne seront pas affectés.`)) return;
+  if(!confirm(`Supprimer définitivement toutes les séances et sessions cardio de "${user.name}" ? Les exercices partagés et l'autre profil ne seront pas affectés.`)) return;
   await writeSessionsForUser(userId, []);
+  await writeCardioForUser(userId, []);
   if(userId === currentUserId()){
     state.sessions = [];
+    state.cardio = [];
   }
   showToast(`Données de "${user.name}" supprimées`);
   renderNav();
   renderBackupView();
   if(state.currentView==='sessions') renderSessionsView();
+  refreshCardioViews();
 }
 
 /* ============================= COMPARAISON DES PROFILS ============================= */
@@ -6887,6 +7363,71 @@ function renderCompareBarWidgets(uA, uB, snapA, snapB){
     drawWeekday();
   });
 }
+/* ----- Comparer : bloc Cardio (même période que le reste de la comparaison ; le filtre de type de séance ne s'applique pas au cardio) ----- */
+function cardioInRange(list, range){
+  return list.filter(c=> (!range.from || c.date>=range.from) && (!range.to || c.date<=range.to));
+}
+function cardioSnapshot(list, range){
+  const n = list.length;
+  const km = list.reduce((t,c)=>t+c.distanceKm,0), min = list.reduce((t,c)=>t+c.durationMin,0);
+  const kcalL = list.filter(c=>c.kcal!=null), hrL = list.filter(c=>c.avgHR!=null);
+  let perWeek = 0;
+  if(n){
+    const today = todayISO();
+    const start = range.from || list.reduce((m,c)=> c.date<m ? c.date : m, list[0].date);
+    const end = (range.to && range.to<today) ? range.to : today;
+    const days = Math.max(7, Math.round((new Date(end) - new Date(start))/86400000) + 1);
+    perWeek = n / (days/7);
+  }
+  return {
+    n, km, min, perWeek,
+    speed: min>0 ? km/(min/60) : 0,
+    kcal: kcalL.reduce((t,c)=>t+c.kcal,0),
+    avgHR: hrL.length ? hrL.reduce((t,c)=>t+c.avgHR,0)/hrL.length : 0,
+    bestKm: n ? Math.max(...list.map(c=>c.distanceKm)) : 0
+  };
+}
+function buildCompareCardioHtml(uA, uB, cA, cB, range){
+  const A = cardioSnapshot(cardioInRange(cA, range), range), B = cardioSnapshot(cardioInRange(cB, range), range);
+  const head = `<div class="section-title" style="margin:22px 0 10px;">Cardio</div>`;
+  if(!A.n && !B.n) return head + `<div class="card">${emptyState('HEART','Aucune session cardio','Aucun des deux profils n\'a de session cardio sur cette période.')}</div>`;
+  const fKm = v=> v ? cardioFmtNum(v,1)+' km' : '—';
+  const fSp = v=> v ? cardioFmtNum(v,1)+' km/h' : '—';
+  const fHr = v=> v ? Math.round(v)+' bpm' : '—';
+  const fKc = v=> v ? Math.round(v).toLocaleString('fr-FR')+' kcal' : '—';
+  return head + `<div class="cmp-vs-groups">
+    ${cmpVsGroup('Sessions',
+      cmpVsRow('Sessions sur cette période', A.n, B.n, fmtInt) +
+      cmpVsRow('Moyenne / semaine', A.perWeek, B.perWeek, fmtPerWeek) +
+      cmpVsRow('Distance totale', A.km, B.km, fKm) +
+      cmpVsRow('Temps total', A.min, B.min, fmtDurCmp))}
+    ${cmpVsGroup('Performance',
+      cmpVsRow('Vitesse moyenne', A.speed, B.speed, fSp) +
+      cmpVsRow('Plus longue distance', A.bestKm, B.bestKm, fKm) +
+      cmpVsRow('FC moyenne', A.avgHR, B.avgHR, fHr) +
+      cmpVsRow('Calories totales', A.kcal, B.kcal, fKc))}
+  </div>
+  <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Distance par semaine</div><div style="height:230px;"><canvas id="cmp-cardio-week"></canvas></div></div>`;
+}
+function renderCompareCardioChart(uA, uB, cA, cB, range){
+  if(!document.getElementById('cmp-cardio-week')) return;
+  const bucket = list=>{ const m = {}; cardioInRange(list, range).forEach(c=>{ const k = isoFromDate(mondayOf(c.date)); m[k] = (m[k]||0)+c.distanceKm; }); return m; };
+  const mA = bucket(cA), mB = bucket(cB);
+  const keys = Object.keys(Object.assign({}, mA, mB)).sort();
+  if(!keys.length) return;
+  const labels = [], dA = [], dB = [];
+  let cur = new Date(keys[0]); const last = new Date(keys[keys.length-1]);
+  while(cur <= last){ const k = isoFromDate(cur); labels.push(fmtDateShort(k)); dA.push(Math.round((mA[k]||0)*10)/10); dB.push(Math.round((mB[k]||0)*10)/10); cur.setDate(cur.getDate()+7); }
+  const cut = Math.max(0, labels.length-26);
+  renderChartSafe('cmp-cardio-week', {
+    type:'bar',
+    data:{ labels: labels.slice(cut), datasets:[
+      { label:uA.name, data:dA.slice(cut), backgroundColor:COMPARE_COLORS.a, borderRadius:4, maxBarThickness:22 },
+      { label:uB.name, data:dB.slice(cut), backgroundColor:COMPARE_COLORS.b, borderRadius:4, maxBarThickness:22 }
+    ] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:true, labels:{color:COLORS.muted, boxWidth:12}}, tooltip:{ callbacks:{ label:ctx=> `${ctx.dataset.label} : ${ctx.parsed.y.toLocaleString('fr-FR')} km` } } }, scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(),{beginAtZero:true}) } }
+  });
+}
 async function renderCompareBody(){
   const body = document.getElementById('cmp-body');
   if(!body) return;
@@ -6931,6 +7472,10 @@ async function renderCompareBody(){
     uA.id===currentUserId() ? Promise.resolve(state.sessions) : readSessionsForUser(uA.id),
     uB.id===currentUserId() ? Promise.resolve(state.sessions) : readSessionsForUser(uB.id),
   ]);
+  const [cardA, cardB] = await Promise.all([
+    uA.id===currentUserId() ? Promise.resolve(state.cardio) : readCardioForUser(uA.id),
+    uB.id===currentUserId() ? Promise.resolve(state.cardio) : readCardioForUser(uB.id),
+  ]);
   const snapA = computeUserSnapshot(sessA, range, state.compareTypeFilter);
   const snapB = computeUserSnapshot(sessB, range, state.compareTypeFilter);
 
@@ -6943,7 +7488,9 @@ async function renderCompareBody(){
     ${buildUnifiedStatGroupsHtml(snapA, snapB)}
     ${buildCompareBarWidgetsHtml()}
     ${buildCompareProgressionHtml()}
-    ${buildCompareChartsHtml(uA, uB)}`;
+    ${buildCompareChartsHtml(uA, uB)}
+    ${buildCompareCardioHtml(uA, uB, cardA, cardB, range)}`;
+  renderCompareCardioChart(uA, uB, cardA, cardB, range);
   renderCompareProgressionChart(uA, uB, sessA, sessB, range);
   renderCompareDoughnuts('a', snapA);
   renderCompareDoughnuts('b', snapB);
@@ -6984,13 +7531,6 @@ function renderCompareView(){
 }
 
 /* ============================= INIT ============================= */
-let hrResizeTimer = null;
-window.addEventListener('resize', ()=>{
-  clearTimeout(hrResizeTimer);
-  hrResizeTimer = setTimeout(()=>{
-  }, 200);
-});
-
 async function init(){
   await loadData();
   applyUserTheme();
