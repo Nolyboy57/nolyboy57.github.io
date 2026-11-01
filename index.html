@@ -2,9 +2,9 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.17
-terminé: ajustements cardio D1-D5 (recette finale v5.17 validée en test automatisé 320/390/bureau) (formulaire sans heure/Marche par défaut/données montre, liste cardio sans période + puces Type/Activité, calendriers à logo + couleurs/légende, stats cardio : période partagée avec Statistiques via periodRange('dash') et onglet Cœur calqué sur la muscu via renderHRChartGeneric) ; fonctionnalité cardio C1-C9 (sessions cardio par profil : onglet Cardio liste/calendrier, formulaire plein écran mobile, Statistiques > Cardio, calendriers Séances/Cardio/Les deux non mémorisé, carte Accueil, bloc Comparer ; clé 'cardio' namespacée incluse dans sauvegardes, restauration, Drive, suppression/réinitialisation de profil) ; bascule Muscu/Cardio dans Statistiques = logo #stats-mode-btn à droite des onglets (cardio : onglets Résumé + Cœur, state.statsTab partagé) ; recette C9 (réinitialisations touchent le cardio et tous les profils, widget plateaux corrigé) ; refonte Statistiques v5.15
-prochaine: aucune (cahier v5.17 terminé)
+version: 5.18
+terminé: v5.18 (cahier navigation/calendriers N1-N4 + recette) — N1 (onglet Cardio retiré de la navigation ; bascule Muscu/Cardio dans Séances via state.sessionsMode + #stats-mode-btn partagé avec Statistiques) ; N2 (calendrier : logo « calques » #cal-mode-btn allumé = vue globale, en-tête mobile en grille 2 lignes sans titre : Aujourd'hui + logo / mois, hauteur fixe) ; N3 (couleur unique OTHER_DOMAIN_COLOR = gris pour l'autre domaine dans les deux sens, CARDIO_UNIFORM_COLOR/MUSCU_UNIFORM_COLOR supprimées) ; N4 (jour partagé muscu+cardio en vue globale : classe .is-split, fond en diagonale --sp-a/--sp-b, points masqués sur mobile) ; avant : ajustements cardio D1-D5 (v5.17)
+prochaine: aucune (cahier v5.18 terminé)
 notes (ne garder que ce qui sert aux futures modifications) :
 - Statistiques : bascule Muscu/Cardio (state.statsMode, #stats-mode-btn, filtre `mode` des onglets dans visibleTabs) ; Comparer commun ; switchView synchronise statsMode.
 - Cardio : session = {id,date,time,kind,activity,durationMin,distanceKm,place,avgHR,maxHR,kcal,note} ; vitesse/allure jamais stockées (cardioSpeedKmh/cardioPaceMinKm) ; state.cardio + saveCardio/readCardioForUser/writeCardioForUser ; refreshCardioViews() après toute modification.
@@ -197,6 +197,21 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .cal-mode-btn svg{width:19px;height:19px;}
 .cal-mode-btn:hover{background:var(--surface-3);}
 @media(max-width:600px){.cal-mode-btn{width:44px;height:44px;}}
+.cal-mode-btn[aria-pressed="true"]{background:var(--accent);color:var(--bg);}
+.cal-head-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
+.cal-nav{display:flex;align-items:center;gap:10px;}
+.cal-nav .cal-label{font-size:15px;min-width:150px;text-align:center;}
+/* Mobile : titre masqué (l'onglet « Calendrier » l'indique déjà) ; 1re ligne = Aujourd'hui + logo vue globale, 2e ligne = mois ; hauteur fixe, le tableau ne bouge pas */
+@media(max-width:600px){
+  .page-head.cal-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;margin-bottom:12px;}
+  .cal-head .cal-head-title{display:none;}
+  .cal-head-controls{display:contents;}
+  .cal-head #cal-today{grid-column:1;justify-self:start;min-height:44px;}
+  .cal-head #cal-mode-btn{grid-column:2;grid-row:1;}
+  .cal-nav{grid-column:1 / -1;grid-row:2;justify-content:space-between;}
+  .cal-nav .cal-label{flex:1;min-width:0;}
+  .cal-nav button.btn.icon-btn-square{width:44px;height:44px;}
+}
 .view{display:none;animation:fadeIn .25s ease;}
 .view.active{display:block;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
@@ -940,9 +955,8 @@ const COLORS = {
    une couleur unique pour « le cardio » dans le calendrier des séances, et COLORS.muted pour « la muscu » dans le calendrier cardio.
    Toutes distinctes des couleurs de SESSION_TYPES. */
 const CARDIO_COMBO_COLORS = {treadmill_walk:'#2EC4D6', treadmill_run:'#E8D44D', outdoor_walk:'#8FB93F', outdoor_run:'#7B6CF6'};
-const CARDIO_UNIFORM_COLOR = '#2EC4D6';
-const MUSCU_UNIFORM_COLOR = COLORS.muted;
-function cardioComboColor(c){ return CARDIO_COMBO_COLORS[c.kind+'_'+c.activity] || CARDIO_UNIFORM_COLOR; }
+const OTHER_DOMAIN_COLOR = COLORS.muted; // couleur unique de « l'autre domaine » dans la vue globale des calendriers (muscu en mode Cardio, cardio en mode Muscu)
+function cardioComboColor(c){ return CARDIO_COMBO_COLORS[c.kind+'_'+c.activity] || CARDIO_COMBO_COLORS.treadmill_walk; }
 const USER_COLOR_POOL = ['#3FAE49','#7341C8','#D48A3F','#3FA0C9','#C9508A','#8FB93F','#C94F4F','#4F7FC9'];
 /* Réglages des règles de couleur de profil (voir §10.2 du cahier des charges) */
 const COLOR_MIN_DISTANCE = 60;   // sous ce seuil (distance « redmean »), deux couleurs sont refusées
@@ -1048,15 +1062,13 @@ function sessionBadge(name, size){
   </span>`;
 }
 
-/* Menu principal : 5 entrées. Chaque entrée regroupe des onglets qui pointent vers les écrans (views) existants.
+/* Menu principal : 6 entrées (Cardio vit dans Séances via la bascule Muscu/Cardio). Chaque entrée regroupe des onglets qui pointent vers les écrans (views) existants.
    `when` masque un onglet (Comparer seulement s'il y a au moins 2 profils). Une entrée à un seul onglet n'affiche pas de barre d'onglets. */
 const NAV_SECTIONS = [
   {id:'home', label:'Accueil', icon:'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10',
     tabs:[{view:'home', label:'Accueil'}]},
   {id:'sessions', label:'Séances', icon:'DUMBBELL',
-    tabs:[{view:'sessions', label:'Liste'}, {view:'calendar', label:'Calendrier'}]},
-  {id:'cardio', label:'Cardio', icon:'HEART',
-    tabs:[{view:'cardio', label:'Liste'}, {view:'cardiocal', label:'Calendrier'}]}, // les stats cardio vivent dans Statistiques > Cardio
+    tabs:[{view:'sessions', label:'Liste', mode:'muscu'}, {view:'calendar', label:'Calendrier', mode:'muscu'}, {view:'cardio', label:'Liste', mode:'cardio'}, {view:'cardiocal', label:'Calendrier', mode:'cardio'}]}, // bascule Muscu/Cardio (state.sessionsMode) ; les stats cardio vivent dans Statistiques > Cardio
   {id:'stats', label:'Statistiques', short:'Stats', icon:'M4 19V10M10 19V5M16 19V13M22 19H2',
     tabs:[{view:'dashboard', tab:'summary', label:'Résumé', mode:'muscu'}, {view:'dashboard', tab:'progress', label:'Progression', mode:'muscu'}, {view:'dashboard', tab:'muscles', label:'Muscles', mode:'muscu'}, {view:'dashboard', tab:'heart', label:'Cœur', mode:'muscu'}, {view:'cardiostats', tab:'summary', label:'Résumé', mode:'cardio'}, {view:'cardiostats', tab:'heart', label:'Cœur', mode:'cardio'}, {view:'records', label:'Records', mode:'muscu'}, {view:'compare', label:'Comparer', when:()=>loadUsers().length>1}]},
   {id:'exercises', label:'Exercices', icon:'M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4',
@@ -1089,6 +1101,7 @@ let state = {
   recMuscleFilter: '__all__',
   recSort: {key:'name', dir:'asc'},
   statsTab: 'summary', // 'summary' | 'progress' | 'muscles' | 'heart' — onglet affiché dans Statistiques
+  sessionsMode: 'muscu', // 'muscu' | 'cardio' — bascule en haut de Séances ; non mémorisé (retour à Muscu à chaque ouverture)
   statsMode: 'muscu', // 'muscu' | 'cardio' — bascule en haut de Statistiques ; Comparer est commun aux deux
   weekdayChartMode: 'count', // 'count' | 'type' — bascule du widget « Fréquence par jour de la semaine »
   muscleChartMode: 'muscle', // 'muscle' | 'sessionType' — bascule le widget "Répartition du volume"
@@ -1795,7 +1808,7 @@ async function closeModal(){
   if(wasActive) unlockBodyScroll();
 }
 document.getElementById('modal-bg').addEventListener('click', (e)=>{ if(e.target.id==='modal-bg') closeModal(); });
-document.getElementById('fab-new-session').addEventListener('click', ()=>{ if(sectionOfView(state.currentView).id==='cardio') openCardioModal(); else createSession(); });
+document.getElementById('fab-new-session').addEventListener('click', ()=>{ if(isCardioView(state.currentView)) openCardioModal(); else createSession(); });
 document.getElementById('mobile-user-btn').addEventListener('click', (e)=>{
   e.stopPropagation();
   const menu = document.getElementById('mobile-user-menu');
@@ -1835,7 +1848,8 @@ function unclassifiedCount(){
 function sectionOfView(view){
   return NAV_SECTIONS.find(sec=>sec.tabs.some(t=>t.view===view)) || NAV_SECTIONS[0];
 }
-function visibleTabs(sec){ return sec.tabs.filter(t=>(!t.when || t.when()) && (!t.mode || t.mode===state.statsMode)); }
+function sectionMode(sec){ return sec.id==='sessions' ? state.sessionsMode : state.statsMode; }
+function visibleTabs(sec){ return sec.tabs.filter(t=>(!t.when || t.when()) && (!t.mode || t.mode===sectionMode(sec))); }
 function gotoSection(id){
   const sec = NAV_SECTIONS.find(x=>x.id===id);
   const tabs = visibleTabs(sec);
@@ -1844,7 +1858,8 @@ function gotoSection(id){
   if(target.tab && sec.id!=='stats') state.statsTab = target.tab;
   switchView(target.view);
 }
-/* Barre d'onglets du bas (mobile) : mêmes 6 entrées que la barre latérale ; bouton « + » visible sur Accueil et Séances. */
+/* Barre d'onglets du bas (mobile) : mêmes entrées que la barre latérale ; bouton « + » visible sur Accueil et Séances. */
+function isCardioView(v){ return v==='cardio' || v==='cardiocal'; }
 function renderMobileTabbar(current){
   const bar = document.getElementById('mobile-tabbar');
   if(!bar) return;
@@ -1855,8 +1870,8 @@ function renderMobileTabbar(current){
   bar.querySelectorAll('[data-tabbar]').forEach(b=> b.addEventListener('click', ()=> gotoSection(b.dataset.tabbar)));
   const fab = document.getElementById('fab-new-session');
   if(fab){
-    fab.classList.toggle('visible', current.id==='home' || current.id==='sessions' || current.id==='cardio');
-    fab.setAttribute('aria-label', current.id==='cardio' ? 'Nouvelle session cardio' : 'Nouvelle séance');
+    fab.classList.toggle('visible', current.id==='home' || current.id==='sessions');
+    fab.setAttribute('aria-label', isCardioView(state.currentView) ? 'Nouvelle session cardio' : 'Nouvelle séance');
   }
 }
 function renderNav(){
@@ -1881,13 +1896,15 @@ function renderNav(){
 function renderSectionTabs(){
   const wrap = document.getElementById('section-tabs');
   if(!wrap) return;
-  const isStats = sectionOfView(state.currentView).id==='stats';
-  const tabs = visibleTabs(sectionOfView(state.currentView));
-  wrap.style.display = (tabs.length>1 || isStats) ? '' : 'none';
+  const curSec = sectionOfView(state.currentView);
+  const isStats = curSec.id==='stats';
+  const hasMode = isStats || curSec.id==='sessions';
+  const tabs = visibleTabs(curSec);
+  wrap.style.display = (tabs.length>1 || hasMode) ? '' : 'none';
   const isActiveTab = t=> t.view===state.currentView && (!t.tab || t.tab===state.statsTab);
   // Statistiques : petit logo tout à droite des onglets = mode affiché (haltère = muscu, cœur = cardio) ; un clic bascule.
-  const cardioMode = state.statsMode==='cardio';
-  const modeBtn = isStats ? `<button type="button" class="stats-mode-btn" id="stats-mode-btn" aria-label="${cardioMode?'Mode cardio — passer à la musculation':'Mode musculation — passer au cardio'}" title="${cardioMode?'Cardio — passer à la musculation':'Muscu — passer au cardio'}">${iconSvg(cardioMode?'HEART':'DUMBBELL')}</button>` : '';
+  const cardioMode = sectionMode(curSec)==='cardio';
+  const modeBtn = hasMode ? `<button type="button" class="stats-mode-btn" id="stats-mode-btn" aria-label="${cardioMode?'Mode cardio — passer à la musculation':'Mode musculation — passer au cardio'}" title="${cardioMode?'Cardio — passer à la musculation':'Muscu — passer au cardio'}">${iconSvg(cardioMode?'HEART':'DUMBBELL')}</button>` : '';
   wrap.innerHTML = tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('') + modeBtn;
   wrap.querySelectorAll('[data-tab-idx]').forEach(b=> b.addEventListener('click', ()=>{
     const t = tabs[Number(b.dataset.tabIdx)];
@@ -1897,6 +1914,11 @@ function renderSectionTabs(){
   }));
   const mb = document.getElementById('stats-mode-btn');
   if(mb) mb.addEventListener('click', ()=>{
+    if(!isStats){ // Séances : même sous-onglet (Liste → Liste, Calendrier → Calendrier)
+      const cal = state.currentView==='calendar' || state.currentView==='cardiocal';
+      switchView(cardioMode ? (cal ? 'calendar' : 'sessions') : (cal ? 'cardiocal' : 'cardio'));
+      return;
+    }
     state.statsMode = cardioMode ? 'muscu' : 'cardio';
     if(state.currentView==='compare'){ renderSectionTabs(); return; }
     state.statsTab = 'summary';
@@ -1907,6 +1929,8 @@ function switchView(id){
   state.currentView = id;
   if(id==='cardiostats') state.statsMode = 'cardio';
   else if(id==='dashboard' || id==='records') state.statsMode = 'muscu';
+  if(isCardioView(id)) state.sessionsMode = 'cardio';
+  else if(id==='sessions' || id==='calendar') state.sessionsMode = 'muscu';
   sectionLastView[sectionOfView(id).id] = id;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+id).classList.add('active');
@@ -4026,16 +4050,18 @@ function renderCalendarView(mode){
   const other = document.getElementById(mode==='cardio' ? 'view-calendar' : 'view-cardiocal'); if(other) other.innerHTML = ''; // évite les ids en double
   const el = document.getElementById(mode==='cardio' ? 'view-cardiocal' : 'view-calendar');
   el.innerHTML = `
-    <div class="page-head">
-      <div>
+    <div class="page-head cal-head">
+      <div class="cal-head-title">
         <h1 class="page-title">Calendrier</h1>
         <div class="page-sub">Clique sur un jour pour voir le détail</div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+      <div class="cal-head-controls">
         <button class="btn ghost" id="cal-today">Aujourd'hui</button>
-        <button class="btn ghost icon-btn-square" id="cal-prev" aria-label="Mois précédent" title="Mois précédent">${iconSvg('M15 18l-6-6 6-6')}</button>
-        <div class="mono" style="font-size:15px;min-width:150px;text-align:center;" id="cal-label"></div>
-        <button class="btn ghost icon-btn-square" id="cal-next" aria-label="Mois suivant" title="Mois suivant">${iconSvg('M9 18l6-6-6-6')}</button>
+        <div class="cal-nav">
+          <button class="btn ghost icon-btn-square" id="cal-prev" aria-label="Mois précédent" title="Mois précédent">${iconSvg('M15 18l-6-6 6-6')}</button>
+          <div class="mono cal-label" id="cal-label"></div>
+          <button class="btn ghost icon-btn-square" id="cal-next" aria-label="Mois suivant" title="Mois suivant">${iconSvg('M9 18l6-6-6-6')}</button>
+        </div>
         <button type="button" class="cal-mode-btn" id="cal-mode-btn"></button>
       </div>
     </div>
@@ -4045,8 +4071,10 @@ function renderCalendarView(mode){
   const names = {sessions:'Muscu', cardio:'Cardio', both:'Vue globale'};
   const syncMode = ()=>{
     const v = state.calView;
-    modeBtn.innerHTML = v==='both' ? iconSvg('M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z') : iconSvg(v==='cardio' ? 'HEART' : 'DUMBBELL');
-    const label = v==='both' ? `${names.both} — revenir à la vue ${names[state.calDefault].toLowerCase()}` : `${names[v]} — voir la vue globale`;
+    // Logo « calques » propre à ce bouton (distinct des logos haltère/cœur de la bascule de mode) ; allumé = vue globale affichée
+    modeBtn.innerHTML = iconSvg('M12 3l9 5-9 5-9-5 9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5');
+    modeBtn.setAttribute('aria-pressed', v==='both' ? 'true' : 'false');
+    const label = v==='both' ? `${names.both} — revenir à la vue ${names[state.calDefault].toLowerCase()}` : `Vue ${names[v].toLowerCase()} — afficher aussi l'autre domaine (vue globale)`;
     modeBtn.title = label; modeBtn.setAttribute('aria-label', label);
   };
   modeBtn.addEventListener('click', ()=>{
@@ -4079,8 +4107,8 @@ function drawCalendarGrid(){
   /* Règle de couleurs : le domaine du menu où l'on est garde le détail (types de séance / 4 combinaisons cardio),
      l'autre domaine apparaît en une couleur unique dans la vue globale. */
   const toItem = (hex, label, title)=>{ const [r,g,b] = hexToRgb(hex); return {color:hex, label, title:title||'', bg:`rgba(${r},${g},${b},0.14)`, bgStrong:`rgba(${r},${g},${b},0.24)`, border:`rgba(${r},${g},${b},0.4)`}; };
-  const muscuItem = s=>{ const t = sessionTypeInfo(s.name); return (view==='both' && dflt==='cardio') ? toItem(MUSCU_UNIFORM_COLOR, t.label) : {...t, title:''}; };
-  const cardioItem = c=> toItem((view==='both' && dflt==='sessions') ? CARDIO_UNIFORM_COLOR : cardioComboColor(c), CARDIO_ACTIVITIES[c.activity], CARDIO_KINDS[c.kind]);
+  const muscuItem = s=>{ const t = sessionTypeInfo(s.name); return (view==='both' && dflt==='cardio') ? toItem(OTHER_DOMAIN_COLOR, t.label) : {...t, title:''}; };
+  const cardioItem = c=> toItem((view==='both' && dflt==='sessions') ? OTHER_DOMAIN_COLOR : cardioComboColor(c), CARDIO_ACTIVITIES[c.activity], CARDIO_KINDS[c.kind]);
 
   let cells = '';
   DAYS_FR.forEach(d=> cells += `<div class="cal-dow">${d}</div>`);
@@ -4093,11 +4121,17 @@ function drawCalendarGrid(){
     const hasAny = items.length > 0;
     const isToday = iso===todayIso;
     let cellVars = '';
-    if(hasAny && items.every(it=>it.color===items[0].color)){
+    /* Jour partagé (vue globale, muscu ET cardio) : case entièrement bicolore, diagonale nette ; moitié haute-gauche = muscu, basse-droite = cardio
+       (1re séance / 1re session de chaque domaine). Jamais plus de deux parts. */
+    const split = view==='both' && daySessions.length>0 && dayCardio.length>0;
+    if(split){
+      const m = items[0], c = items[daySessions.length];
+      cellVars = `--sp-a:color-mix(in srgb,${m.color} 60%,var(--surface-2));--sp-b:color-mix(in srgb,${c.color} 60%,var(--surface-2));--sb-border:${m.border};--sb-color:${m.color};`;
+    } else if(hasAny && items.every(it=>it.color===items[0].color)){
       cellVars = `--sb-bg:${items[0].bg};--sb-border:${items[0].border};--sb-color:${items[0].color};`;
     }
     const pills = items.map(it=>`<span class="cal-type-pill"${it.title?` title="${escapeHtml(it.title)}"`:''} style="--sb-color:${it.color};--sb-bg:${it.bgStrong};">${escapeHtml(it.label)}</span>`).join('');
-    cells += `<div class="cal-cell ${hasAny? 'has-session':''} ${isToday?'is-today':''}" ${hasAny?`data-day="${iso}" style="${cellVars}"`:''}>
+    cells += `<div class="cal-cell ${hasAny? 'has-session':''} ${split?'is-split':''} ${isToday?'is-today':''}" ${hasAny?`data-day="${iso}" style="${cellVars}"`:''}>
       <div class="cal-daynum">${d}</div>
       ${hasAny? `<div class="cal-types">${pills}</div>` : ''}
     </div>`;
@@ -4107,8 +4141,8 @@ function drawCalendarGrid(){
   let legendItems;
   if(view==='sessions') legendItems = muscuTypes;
   else if(view==='cardio') legendItems = combos;
-  else if(dflt==='sessions') legendItems = muscuTypes.concat([[CARDIO_UNIFORM_COLOR,'Cardio']]);
-  else legendItems = combos.concat([[MUSCU_UNIFORM_COLOR,'Muscu']]);
+  else if(dflt==='sessions') legendItems = muscuTypes.concat([[OTHER_DOMAIN_COLOR,'Cardio']]);
+  else legendItems = combos.concat([[OTHER_DOMAIN_COLOR,'Muscu']]);
   const legend = `<div class="cal-legend">${legendItems.map(([c,l])=>`<span class="cal-legend-item"><span class="cal-legend-dot" style="background:${c};"></span>${escapeHtml(l)}</span>`).join('')}</div>`;
   document.getElementById('cal-grid-wrap').innerHTML = `<div class="cal-grid">${cells}</div>${legend}`;
   document.querySelectorAll('.cal-cell[data-day]').forEach(c=>{
@@ -4128,6 +4162,9 @@ function drawCalendarGrid(){
       .cal-cell.empty-cell{background:transparent;border-color:transparent;}
       .cal-cell.has-session{cursor:pointer;background:var(--sb-bg, var(--surface-2));border-color:var(--sb-border, var(--border));}
       .cal-cell.has-session:hover{border-color:var(--sb-color, var(--accent));transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,0.28);}
+      .cal-cell.is-split{background:linear-gradient(135deg,var(--sp-a) 0 50%,var(--sp-b) 50% 100%);}
+      .cal-cell.is-split .cal-type-pill{background:var(--surface-2);}
+      .cal-cell.is-split .cal-daynum{color:var(--text);font-weight:700;}
       .cal-cell.is-today{box-shadow:0 0 0 1.5px var(--accent) inset;}
       .cal-cell.is-today .cal-daynum{color:var(--accent);font-weight:800;}
       .cal-daynum{font-family:var(--font-mono);font-size:13px;color:var(--muted);}
@@ -4139,6 +4176,7 @@ function drawCalendarGrid(){
         .cal-daynum{font-size:11px;}
         .cal-types{margin-top:4px;gap:2px;}
         .cal-type-pill{font-size:0;padding:0;width:6px;height:6px;border-radius:50%;display:inline-block;}
+        .cal-cell.is-split .cal-types{display:none;}
         .cal-dow{font-size:9.5px;}
       }
     `;
