@@ -2,9 +2,9 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.19
-terminé: v5.19 (cahier ajustements cardio/navigation C1-C4) — C1 (fiche résumé cardio : cardioSummaryHtml/openCardioSummaryModal/downloadCardio/buildCardioTxt/copyCardioTxt, utilisée par le calendrier, l'Accueil et les stats cardio) ; C2 (barre d'onglets : zone défilante .section-tabs-scroll + bouton de bascule fixe, fondus .has-more-left/-right et ligne .tabs-progress, updateTabsScroll) ; C3 (plus de défilement vertical : overflow-y:hidden, touch-action:pan-x) ; C4 (stats cardio : cardioRangeSpanDays/cardioTrendBuckets jour/semaine/mois, jours de la semaine par type via state.cardioWeekdayMode) ; avant : v5.18 (cahier navigation/calendriers N1-N4 + recette) — N1 (onglet Cardio retiré de la navigation ; bascule Muscu/Cardio dans Séances via state.sessionsMode + #stats-mode-btn partagé avec Statistiques) ; N2 (calendrier : logo « calques » #cal-mode-btn allumé = vue globale, en-tête mobile en grille 2 lignes sans titre : Aujourd'hui + logo / mois, hauteur fixe) ; N3 (couleur unique OTHER_DOMAIN_COLOR = gris pour l'autre domaine dans les deux sens, CARDIO_UNIFORM_COLOR/MUSCU_UNIFORM_COLOR supprimées) ; N4 (jour partagé muscu+cardio en vue globale : classe .is-split, fond en diagonale --sp-a/--sp-b, points masqués sur mobile) ; avant : ajustements cardio D1-D5 (v5.17)
-prochaine: aucune (cahier v5.19 terminé)
+version: 5.20
+terminé: v5.20 (cahier E1-E3 : onglet actif centré dans la barre (bindTabsScroll), piste de défilement toujours présente + fondu au changement de mode, Comparer par mode muscu/cardio avec filtres state.compareCardioFilter) ; avant : v5.19 (cahier ajustements cardio/navigation C1-C4) — C1 (fiche résumé cardio : cardioSummaryHtml/openCardioSummaryModal/downloadCardio/buildCardioTxt/copyCardioTxt, utilisée par le calendrier, l'Accueil et les stats cardio) ; C2 (barre d'onglets : zone défilante .section-tabs-scroll + bouton de bascule fixe, fondus .has-more-left/-right et ligne .tabs-progress, updateTabsScroll) ; C3 (plus de défilement vertical : overflow-y:hidden, touch-action:pan-x) ; C4 (stats cardio : cardioRangeSpanDays/cardioTrendBuckets jour/semaine/mois, jours de la semaine par type via state.cardioWeekdayMode) ; avant : v5.18 (cahier navigation/calendriers N1-N4 + recette) — N1 (onglet Cardio retiré de la navigation ; bascule Muscu/Cardio dans Séances via state.sessionsMode + #stats-mode-btn partagé avec Statistiques) ; N2 (calendrier : logo « calques » #cal-mode-btn allumé = vue globale, en-tête mobile en grille 2 lignes sans titre : Aujourd'hui + logo / mois, hauteur fixe) ; N3 (couleur unique OTHER_DOMAIN_COLOR = gris pour l'autre domaine dans les deux sens, CARDIO_UNIFORM_COLOR/MUSCU_UNIFORM_COLOR supprimées) ; N4 (jour partagé muscu+cardio en vue globale : classe .is-split, fond en diagonale --sp-a/--sp-b, points masqués sur mobile) ; avant : ajustements cardio D1-D5 (v5.17)
+prochaine: aucune (cahier v5.20 terminé)
 notes (ne garder que ce qui sert aux futures modifications) :
 - Statistiques : bascule Muscu/Cardio (state.statsMode, #stats-mode-btn, filtre `mode` des onglets dans visibleTabs) ; Comparer commun ; switchView synchronise statsMode.
 - Cardio : session = {id,date,time,kind,activity,durationMin,distanceKm,place,avgHR,maxHR,kcal,note} ; vitesse/allure jamais stockées (cardioSpeedKmh/cardioPaceMinKm) ; state.cardio + saveCardio/readCardioForUser/writeCardioForUser ; refreshCardioViews() après toute modification.
@@ -190,9 +190,12 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .section-tabs-main::before{left:0;background:linear-gradient(90deg,var(--bg),transparent);}
 .section-tabs-main::after{right:0;background:linear-gradient(270deg,var(--bg),transparent);}
 .section-tabs-main.has-more-left::before,.section-tabs-main.has-more-right::after{opacity:1;}
-.tabs-progress{display:none;position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--border);border-radius:2px;pointer-events:none;}
-.tabs-progress i{position:absolute;top:0;bottom:0;left:0;width:30%;background:var(--accent);border-radius:2px;}
-.section-tabs-main.is-scrollable .tabs-progress{display:block;}
+.tabs-progress{display:block;position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--border);border-radius:2px;pointer-events:none;}
+.tabs-progress i{position:absolute;top:0;bottom:0;left:0;width:100%;background:var(--accent);border-radius:2px;opacity:.3;transition:opacity .15s;}
+.section-tabs-main.is-scrollable .tabs-progress i{opacity:1;}
+@keyframes tabsFadeIn{from{opacity:0;}to{opacity:1;}}
+.section-tabs-main.tabs-fade{animation:tabsFadeIn .15s ease-out;}
+@media (prefers-reduced-motion:reduce){.section-tabs-main.tabs-fade{animation:none;}.section-tabs-scroll{scroll-behavior:auto;}}
 .section-tab{background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:0;flex-shrink:0;padding:0 16px;height:44px;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;transition:color .15s, border-color .15s;}
 .section-tab:hover{color:var(--text);}
 .section-tab.active{color:var(--text);border-bottom-color:var(--accent);}
@@ -1120,6 +1123,7 @@ let state = {
   dashTypeFilter: '__all__', // '__all__' | 'push' | 'pull' | 'upper' | 'legs' | 'other' — filtre par type de séance du tableau de bord
   comparePeriod: 0, // 0 (tout) | 'week' | 'month' | 'custom' — période analysée dans la vue "Comparer les profils"
   compareWeekAnchor: null, compareMonthAnchor: null, compareCustomFrom: null, compareCustomTo: null,
+  compareCardioFilter: {kind:'all', activity:'all'}, // filtres Comparer en mode cardio (non mémorisés)
   compareTypeFilter: '__all__', // filtre par type de séance dans la vue "Comparer les profils"
   compareExerciseId: null, // exercice sélectionné pour le graphique "Progression par exercice" de la vue comparaison
   compareVariant: '__auto__',
@@ -1917,8 +1921,13 @@ function renderSectionTabs(){
   // Statistiques : petit logo tout à droite des onglets = mode affiché (haltère = muscu, cœur = cardio) ; un clic bascule.
   const cardioMode = sectionMode(curSec)==='cardio';
   const modeBtn = hasMode ? `<button type="button" class="stats-mode-btn" id="stats-mode-btn" aria-label="${cardioMode?'Mode cardio — passer à la musculation':'Mode musculation — passer au cardio'}" title="${cardioMode?'Cardio — passer à la musculation':'Muscu — passer au cardio'}">${iconSvg(cardioMode?'HEART':'DUMBBELL')}</button>` : '';
-  wrap.innerHTML = `<div class="section-tabs-main" id="section-tabs-main"><div class="section-tabs-scroll" id="section-tabs-scroll">${tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('')}</div><div class="tabs-progress" aria-hidden="true"><i></i></div></div>${modeBtn}`;
-  bindTabsScroll();
+  const oldSc = document.getElementById('section-tabs-scroll');
+  const tabsKey = curSec.id+'|'+sectionMode(curSec);
+  const sameBar = !!oldSc && wrap.dataset.tabsKey===tabsKey;
+  const prevLeft = sameBar ? oldSc.scrollLeft : 0;
+  wrap.dataset.tabsKey = tabsKey;
+  wrap.innerHTML = `<div class="section-tabs-main${sameBar?'':' tabs-fade'}" id="section-tabs-main"><div class="section-tabs-scroll" id="section-tabs-scroll">${tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('')}</div><div class="tabs-progress" aria-hidden="true"><i></i></div></div>${modeBtn}`;
+  bindTabsScroll(prevLeft, sameBar);
   wrap.querySelectorAll('[data-tab-idx]').forEach(b=> b.addEventListener('click', ()=>{
     const t = tabs[Number(b.dataset.tabIdx)];
     if(t.tab) state.statsTab = t.tab;
@@ -1933,7 +1942,7 @@ function renderSectionTabs(){
       return;
     }
     state.statsMode = cardioMode ? 'muscu' : 'cardio';
-    if(state.currentView==='compare'){ renderSectionTabs(); return; }
+    if(state.currentView==='compare'){ renderSectionTabs(); renderCompareView(); return; }
     state.statsTab = 'summary';
     switchView(state.statsMode==='cardio' ? 'cardiostats' : 'dashboard');
   });
@@ -1947,6 +1956,7 @@ function updateTabsScroll(){
   main.classList.toggle('has-more-left', scrollable && sc.scrollLeft > 2);
   main.classList.toggle('has-more-right', scrollable && sc.scrollLeft < max - 2);
   const bar = main.querySelector('.tabs-progress i');
+  if(bar && !scrollable){ bar.style.width = '100%'; bar.style.left = '0'; }
   if(bar && scrollable){
     const w = Math.max(14, sc.clientWidth / sc.scrollWidth * 100);
     bar.style.width = w + '%';
@@ -1954,13 +1964,18 @@ function updateTabsScroll(){
   }
 }
 let tabsScrollResizeBound = false;
-function bindTabsScroll(){
+function bindTabsScroll(prevLeft, animate){
   const sc = document.getElementById('section-tabs-scroll');
   if(!sc) return;
   sc.addEventListener('scroll', updateTabsScroll, {passive:true});
   if(!tabsScrollResizeBound){ tabsScrollResizeBound = true; window.addEventListener('resize', updateTabsScroll); }
+  sc.scrollLeft = prevLeft || 0; // la barre est reconstruite à chaque clic : on repart de la position précédente
   const act = sc.querySelector('.section-tab.active');
-  if(act) act.scrollIntoView({inline:'nearest', block:'nearest'});
+  if(act){
+    const left = Math.max(0, act.offsetLeft - (sc.clientWidth - act.offsetWidth)/2);
+    const smooth = animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    sc.scrollTo({left, behavior: smooth ? 'smooth' : 'auto'});
+  }
   updateTabsScroll();
   requestAnimationFrame(updateTabsScroll);
 }
@@ -4469,18 +4484,19 @@ function cardioSessionsPerWeek(list){
   return list.length / (days/7);
 }
 /* Étendue (en jours) de la période cardio ; « Tout » = de la première session cardio à aujourd'hui (null si aucune session). */
-function cardioRangeSpanDays(range){
+function cardioRangeSpanDays(range, pool){
+  pool = pool || state.cardio;
   if(!range.from && !range.to) return null;
   const toD = range.to ? new Date(range.to+'T00:00:00') : new Date();
   let fromD;
   if(range.from) fromD = new Date(range.from+'T00:00:00');
-  else if(state.cardio.length) fromD = new Date(state.cardio.reduce((min,c)=> c.date<min?c.date:min, state.cardio[0].date)+'T00:00:00');
+  else if(pool.length) fromD = new Date(pool.reduce((min,c)=> c.date<min?c.date:min, pool[0].date)+'T00:00:00');
   else return null;
   return Math.round((toD-fromD)/86400000)+1;
 }
 /* Même granularité que la muscu : ≤ 14 j → jour, ≤ 200 j → semaine, sinon (ou « Tout ») → mois. */
-function cardioTrendBuckets(list, range, key){
-  const span = cardioRangeSpanDays(range);
+function cardioTrendBuckets(list, range, key, pool){
+  const span = cardioRangeSpanDays(range, pool);
   let bucketBy = 'month';
   if(span!==null){ if(span<=14) bucketBy='day'; else if(span<=200) bucketBy='week'; }
   const buckets = {};
@@ -7616,15 +7632,18 @@ function cardioSnapshot(list, range){
     bestKm: n ? Math.max(...list.map(c=>c.distanceKm)) : 0
   };
 }
+function compareCardioList(list, range){
+  const f = state.compareCardioFilter;
+  return cardioInRange(list, range).filter(c=> (f.kind==='all'||c.kind===f.kind) && (f.activity==='all'||c.activity===f.activity));
+}
 function buildCompareCardioHtml(uA, uB, cA, cB, range){
-  const A = cardioSnapshot(cardioInRange(cA, range), range), B = cardioSnapshot(cardioInRange(cB, range), range);
-  const head = `<div class="section-title" style="margin:22px 0 10px;">Cardio</div>`;
-  if(!A.n && !B.n) return head + `<div class="card">${emptyState('HEART','Aucune session cardio','Aucun des deux profils n\'a de session cardio sur cette période.')}</div>`;
+  const A = cardioSnapshot(compareCardioList(cA, range), range), B = cardioSnapshot(compareCardioList(cB, range), range);
+  if(!A.n && !B.n) return `<div class="card">${emptyState('HEART','Aucune session cardio','Aucun des deux profils n\'a de session cardio sur ces filtres.')}</div>`;
   const fKm = v=> v ? cardioFmtNum(v,1)+' km' : '—';
   const fSp = v=> v ? cardioFmtNum(v,1)+' km/h' : '—';
   const fHr = v=> v ? Math.round(v)+' bpm' : '—';
   const fKc = v=> v ? Math.round(v).toLocaleString('fr-FR')+' kcal' : '—';
-  return head + `<div class="cmp-vs-groups">
+  return `<div class="cmp-vs-groups">
     ${cmpVsGroup('Sessions',
       cmpVsRow('Sessions sur cette période', A.n, B.n, fmtInt) +
       cmpVsRow('Moyenne / semaine', A.perWeek, B.perWeek, fmtPerWeek) +
@@ -7636,26 +7655,38 @@ function buildCompareCardioHtml(uA, uB, cA, cB, range){
       cmpVsRow('FC moyenne', A.avgHR, B.avgHR, fHr) +
       cmpVsRow('Calories totales', A.kcal, B.kcal, fKc))}
   </div>
-  <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Distance par semaine</div><div style="height:230px;"><canvas id="cmp-cardio-week"></canvas></div></div>`;
+  <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Distance dans le temps</div><div style="height:230px;"><canvas id="cmp-cardio-week"></canvas></div></div>
+  <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Sessions par jour de la semaine</div><div style="height:230px;"><canvas id="cmp-cardio-weekday"></canvas></div></div>`;
 }
 function renderCompareCardioChart(uA, uB, cA, cB, range){
-  if(!document.getElementById('cmp-cardio-week')) return;
-  const bucket = list=>{ const m = {}; cardioInRange(list, range).forEach(c=>{ const k = isoFromDate(mondayOf(c.date)); m[k] = (m[k]||0)+c.distanceKm; }); return m; };
-  const mA = bucket(cA), mB = bucket(cB);
-  const keys = Object.keys(Object.assign({}, mA, mB)).sort();
-  if(!keys.length) return;
-  const labels = [], dA = [], dB = [];
-  let cur = new Date(keys[0]); const last = new Date(keys[keys.length-1]);
-  while(cur <= last){ const k = isoFromDate(cur); labels.push(fmtDateShort(k)); dA.push(Math.round((mA[k]||0)*10)/10); dB.push(Math.round((mB[k]||0)*10)/10); cur.setDate(cur.getDate()+7); }
-  const cut = Math.max(0, labels.length-26);
-  renderChartSafe('cmp-cardio-week', {
-    type:'bar',
-    data:{ labels: labels.slice(cut), datasets:[
-      { label:uA.name, data:dA.slice(cut), backgroundColor:COMPARE_COLORS.a, borderRadius:4, maxBarThickness:22 },
-      { label:uB.name, data:dB.slice(cut), backgroundColor:COMPARE_COLORS.b, borderRadius:4, maxBarThickness:22 }
-    ] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:true, labels:{color:COLORS.muted, boxWidth:12}}, tooltip:{ callbacks:{ label:ctx=> `${ctx.dataset.label} : ${ctx.parsed.y.toLocaleString('fr-FR')} km` } } }, scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(),{beginAtZero:true}) } }
-  });
+  const lA = compareCardioList(cA, range), lB = compareCardioList(cB, range);
+  const optsBase = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:true, labels:{color:COLORS.muted, boxWidth:12}} } };
+  if(document.getElementById('cmp-cardio-week')){
+    const pool = lA.concat(lB);
+    const bA = cardioTrendBuckets(lA, range, 'distanceKm', pool), bB = cardioTrendBuckets(lB, range, 'distanceKm', pool);
+    const mA = {}, mB = {}, lab = {};
+    bA.forEach(x=>{ mA[x.key]=x.v; lab[x.key]=x.label; });
+    bB.forEach(x=>{ mB[x.key]=x.v; lab[x.key]=x.label; });
+    const keys = Object.keys(lab).sort();
+    const r1 = v=> Math.round((v||0)*10)/10;
+    renderChartSafe('cmp-cardio-week', {
+      type:'bar',
+      data:{ labels: keys.map(k=>lab[k]), datasets:[
+        { label:uA.name, data:keys.map(k=>r1(mA[k])), backgroundColor:COMPARE_COLORS.a, borderRadius:4, maxBarThickness:22 },
+        { label:uB.name, data:keys.map(k=>r1(mB[k])), backgroundColor:COMPARE_COLORS.b, borderRadius:4, maxBarThickness:22 } ] },
+      options:Object.assign({}, optsBase, { scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(), {beginAtZero:true}) }, plugins:Object.assign({}, optsBase.plugins, { tooltip:{ callbacks:{ label:ctx=> `${ctx.dataset.label} : ${ctx.parsed.y.toLocaleString('fr-FR')} km` } } }) })
+    });
+  }
+  if(document.getElementById('cmp-cardio-weekday')){
+    const cnt = l=>{ const a=[0,0,0,0,0,0,0]; l.forEach(c=>{ a[(new Date(c.date+'T00:00:00').getDay()+6)%7]++; }); return a; };
+    renderChartSafe('cmp-cardio-weekday', {
+      type:'bar',
+      data:{ labels: DAYS_FR, datasets:[
+        { label:uA.name, data:cnt(lA), backgroundColor:COMPARE_COLORS.a, borderRadius:4, maxBarThickness:22 },
+        { label:uB.name, data:cnt(lB), backgroundColor:COMPARE_COLORS.b, borderRadius:4, maxBarThickness:22 } ] },
+      options:Object.assign({}, optsBase, { scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(), {beginAtZero:true}, {ticks:Object.assign({}, chartGridOpts().ticks, {stepSize:1})}) } })
+    });
+  }
 }
 async function renderCompareBody(){
   const body = document.getElementById('cmp-body');
@@ -7705,10 +7736,18 @@ async function renderCompareBody(){
     uA.id===currentUserId() ? Promise.resolve(state.cardio) : readCardioForUser(uA.id),
     uB.id===currentUserId() ? Promise.resolve(state.cardio) : readCardioForUser(uB.id),
   ]);
+  syncPeriodPanel('cmp', 'cmp');
+  if(state.statsMode==='cardio'){
+    const f = state.compareCardioFilter;
+    const kl = document.getElementById('cmp-ckind-label'), al = document.getElementById('cmp-cact-label');
+    if(kl) kl.textContent = ({all:'Tous',treadmill:'Tapis',outdoor:'Extérieur'})[f.kind];
+    if(al) al.textContent = ({all:'Marche + course',walk:'Marche',run:'Course'})[f.activity];
+    body.innerHTML = buildCompareCardioHtml(uA, uB, cardA, cardB, range);
+    renderCompareCardioChart(uA, uB, cardA, cardB, range);
+    return;
+  }
   const snapA = computeUserSnapshot(sessA, range, state.compareTypeFilter);
   const snapB = computeUserSnapshot(sessB, range, state.compareTypeFilter);
-
-  syncPeriodPanel('cmp', 'cmp');
   const typeLabel = document.getElementById('cmp-type-label');
   if(typeLabel) typeLabel.textContent = compareTypeFilterLabel();
 
@@ -7717,9 +7756,7 @@ async function renderCompareBody(){
     ${buildUnifiedStatGroupsHtml(snapA, snapB)}
     ${buildCompareBarWidgetsHtml()}
     ${buildCompareProgressionHtml()}
-    ${buildCompareChartsHtml(uA, uB)}
-    ${buildCompareCardioHtml(uA, uB, cardA, cardB, range)}`;
-  renderCompareCardioChart(uA, uB, cardA, cardB, range);
+    ${buildCompareChartsHtml(uA, uB)}`;
   renderCompareProgressionChart(uA, uB, sessA, sessB, range);
   renderCompareDoughnuts('a', snapA);
   renderCompareDoughnuts('b', snapB);
@@ -7727,11 +7764,15 @@ async function renderCompareBody(){
 }
 function renderCompareView(){
   const el = document.getElementById('view-compare');
+  const cardioMode = state.statsMode==='cardio';
+  const cf = state.compareCardioFilter;
+  const CK = [['all','Tous'],['treadmill','Tapis'],['outdoor','Extérieur']], CA = [['all','Marche + course'],['walk','Marche'],['run','Course']];
+  const cseg = (key,opts)=> `<div class="seg-group">${opts.map(([v,l])=>`<button type="button" class="seg-btn${cf[key]===v?' active':''}" data-cmpc="${key}" data-val="${v}">${l}</button>`).join('')}</div>`;
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <h1 class="page-title">Comparer les profils</h1>
-        <div class="page-sub">Le tableau de bord des deux profils, côte à côte — les écarts sont mis en évidence</div>
+        <h1 class="page-title">Comparer les profils — ${cardioMode?'Cardio':'Muscu'}</h1>
+        <div class="page-sub">${cardioMode?'Les sessions cardio des deux profils, côte à côte':'Le tableau de bord des deux profils, côte à côte'} — les écarts sont mis en évidence</div>
       </div>
     </div>
     <div class="filter-bar">
@@ -7740,7 +7781,7 @@ function renderCompareView(){
         ${filterChipHtml('cmp-b-panel','Profil B','cmp-b-label','','')}
       </div>
       ${filterChipHtml('cmp-period-panel','Période','cmp-period-label',periodLabel('cmp'),periodPanelHtml('cmp'))}
-      ${filterChipHtml('cmp-type-panel','Type','cmp-type-label','',`
+      ${cardioMode ? filterChipHtml('cmp-ckind-panel','Type','cmp-ckind-label','',cseg('kind',CK)) + filterChipHtml('cmp-cact-panel','Activité','cmp-cact-label','',cseg('activity',CA)) : filterChipHtml('cmp-type-panel','Type','cmp-type-label','',`
         <div class="seg-group" id="cmp-type-group">
           ${[['__all__','Tout'],['push','Push'],['pull','Pull'],['upper','Upper'],['legs','Legs'],['other','Autres']].map(([v,l])=>`<button class="seg-btn${state.compareTypeFilter===v?' active':''}" data-ct="${v}">${l}</button>`).join('')}
         </div>`)}
@@ -7749,6 +7790,11 @@ function renderCompareView(){
   `;
   bindFilterChips(el);
   bindPeriodPanel('cmp', 'cmp', renderCompareBody);
+  el.querySelectorAll('[data-cmpc]').forEach(b=> b.addEventListener('click', ()=>{
+    state.compareCardioFilter[b.dataset.cmpc] = b.dataset.val;
+    el.querySelectorAll(`[data-cmpc="${b.dataset.cmpc}"]`).forEach(x=>x.classList.toggle('active', x===b));
+    renderCompareBody();
+  }));
   el.querySelectorAll('#cmp-type-group [data-ct]').forEach(b=>{
     b.addEventListener('click', ()=>{
       state.compareTypeFilter = b.dataset.ct;
