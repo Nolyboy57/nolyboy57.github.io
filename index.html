@@ -2,8 +2,8 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.21
-terminé: cahier v5.20 → v5.21, lots 1 à 7 (Extérieur, couleurs Marche/Course, séance vide non enregistrée, mise en page PC, pied à trois lignes, période d'Accueil toujours ouverte, Séances Liste/Calendrier unifiés, créateur unique, stats à onglets communs + bascule Séances/Cardio, Accueil en deux blocs, titres/sous-titres harmonisés, vocabulaire « séance » / « séance cardio »).
+version: 5.22
+terminé: v5.22 (correctifs : Voir tout + durée + sans tag « Validée » sur l'Accueil, tags cardio en couleur de combinaison, calendrier rectangulaire, bandeaux séance / séance cardio dans la fiche du jour, filtres de la liste à la ligne sur mobile, bascule des stats sur la ligne du titre (#stats-mode-bar en absolu, positionStatsModeBar), fondus des onglets par masque CSS) ; avant : v5.21 (cahier v5.20→v5.21, lots 1 à 7).
 prochaine: rien en attente.
 notes (ne garder que ce qui sert aux futures modifications) :
 - Titres : titre = nom de l'onglet, sous-titre court (statsHeadTexts pour les stats, mis à jour par showStatsTab). Vocabulaire : « séance » = musculation, « séance cardio » = cardio ; jamais « muscu » à l'écran.
@@ -171,7 +171,7 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:0.02em;font-weight:400;m
 .user-menu-action.active{color:var(--text);border-color:var(--accent);}
 .user-menu-action svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;flex-shrink:0;}
 
-.main{flex:1;min-width:0;padding:30px 38px 60px;max-width:1800px;}  /* toute la largeur à droite du bandeau (plafond ultra-large) */
+.main{position:relative;flex:1;min-width:0;padding:30px 38px 60px;max-width:1800px;}  /* toute la largeur à droite du bandeau (plafond ultra-large) */
 .home-hero{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
 .home-cta{font-size:16px;padding:14px 24px;}
 .home-blocks{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:16px;align-items:start;}
@@ -196,10 +196,10 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .section-tabs-main{flex:1;min-width:0;position:relative;}
 .section-tabs-scroll{display:flex;gap:4px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-x;border-bottom:1px solid var(--border);height:44px;align-items:stretch;}
 .section-tabs-scroll::-webkit-scrollbar{display:none;}
-.section-tabs-main::before,.section-tabs-main::after{content:'';position:absolute;top:0;bottom:3px;width:28px;pointer-events:none;opacity:0;transition:opacity .15s;z-index:2;}
-.section-tabs-main::before{left:0;background:linear-gradient(90deg,var(--bg),transparent);}
-.section-tabs-main::after{right:0;background:linear-gradient(270deg,var(--bg),transparent);}
-.section-tabs-main.has-more-left::before,.section-tabs-main.has-more-right::after{opacity:1;}
+/* Fondus de bord par masque (transparence réelle) : aucun voile de couleur, le dégradé du profil reste visible derrière. */
+.section-tabs-main.has-more-right .section-tabs-scroll{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 32px),transparent);}
+.section-tabs-main.has-more-left .section-tabs-scroll{-webkit-mask-image:linear-gradient(270deg,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(270deg,#000 calc(100% - 32px),transparent);}
+.section-tabs-main.has-more-left.has-more-right .section-tabs-scroll{-webkit-mask-image:linear-gradient(90deg,transparent,#000 32px,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(90deg,transparent,#000 32px,#000 calc(100% - 32px),transparent);}
 .tabs-progress{display:block;position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--border);border-radius:2px;pointer-events:none;}
 .tabs-progress i{position:absolute;top:0;bottom:0;left:0;width:100%;background:var(--accent);border-radius:2px;opacity:.3;transition:opacity .15s;}
 .section-tabs-main.is-scrollable .tabs-progress i{opacity:1;}
@@ -209,8 +209,9 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .section-tab{background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:0;flex-shrink:0;padding:0 16px;height:44px;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;transition:color .15s, border-color .15s;}
 .section-tab:hover{color:var(--text);}
 .section-tab.active{color:var(--text);border-bottom-color:var(--accent);}
-.section-tabs.with-mode-bar{margin-bottom:10px;}
-.stats-mode-bar{height:52px;box-sizing:border-box;margin:0 0 14px;display:flex;align-items:center;}
+.stats-mode-bar{position:absolute;right:38px;top:96px;height:40px;z-index:3;display:flex;align-items:center;}
+@media(max-width:600px){.stats-mode-bar{right:14px;}}
+.main:has(.stats-mode-bar.on) .page-head > div:first-child{padding-right:128px;}
 .cardio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 .cardio-grid .set-field{min-width:0;}
 .modal.session-modal{overflow-x:hidden;}
@@ -243,8 +244,9 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .dom-mark svg{width:15px;height:15px;}
 @media(max-width:600px){
   .list-filters{flex-direction:column;align-items:stretch;gap:8px;}
-  .list-pills{flex:none;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
-  .list-pills::-webkit-scrollbar{display:none;}
+  .list-pills{flex:none;flex-wrap:wrap;overflow:visible;max-width:100%;}
+  .list-pill-sep{display:none;}
+  .list-filters .seg-group{max-width:100%;flex-wrap:wrap;}
   .fpill{min-height:44px;}
   button.btn.list-reset{min-height:44px;align-self:flex-start;}
 }
@@ -374,8 +376,9 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .seg-btn.ico{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:40px;padding:0 10px;}
 .seg-btn.ico svg{width:19px;height:19px;}
 /* Calendrier : largeur limitée et centrée ; les cases gardent une proportion et s'agrandissent vers le bas */
-#cal-grid-wrap{max-width:820px;margin-left:auto;margin-right:auto;}
-@media(min-width:601px){#cal-grid-wrap .cal-cell{aspect-ratio:1 / 0.9;min-height:74px;}}
+#cal-grid-wrap{max-width:1040px;margin-left:auto;margin-right:auto;}
+@media(min-width:601px){#cal-grid-wrap .cal-cell{aspect-ratio:1 / 0.72;min-height:64px;}}
+@media(max-width:600px){#cal-grid-wrap .cal-cell{aspect-ratio:1 / 0.8;min-height:38px;}}
 
 .table-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
 .table-toolbar input[type=text]{flex:1 1 200px;min-width:120px;}
@@ -2008,13 +2011,19 @@ function renderSectionTabs(){
   renderStatsModeBar();
 }
 /* Bascule Séances / Cardio sous la barre d'onglets : zone de hauteur constante (vide hors Résumé, Cœur et Comparer) pour que rien ne bouge. */
+function positionStatsModeBar(){
+  const t=document.getElementById('section-tabs'), bar=document.getElementById('stats-mode-bar'); if(!t||!bar) return;
+  bar.style.top = (t.offsetTop + t.offsetHeight + 20) + 'px';
+}
+window.addEventListener('resize', ()=>{ try{ positionStatsModeBar(); }catch(e){} });
 function renderStatsModeBar(){
   const bar = document.getElementById('stats-mode-bar'); if(!bar) return;
   const isStats = sectionOfView(state.currentView).id==='stats';
   bar.style.display = isStats ? '' : 'none';
-  document.getElementById('section-tabs').classList.toggle('with-mode-bar', isStats);
+  bar.classList.remove('on');
   if(!isStats){ bar.innerHTML=''; return; }
   if(!statsHasModeSwitch()){ bar.innerHTML=''; return; }
+  bar.classList.add('on'); positionStatsModeBar();
   const cardioMode = state.statsMode==='cardio';
   bar.innerHTML = `<div class="seg-group" id="stats-mode-group" role="group" aria-label="Séances ou séances cardio">${[['muscu','Séances',iconSvg('DUMBBELL')],['cardio','Séances cardio',iconSvg('HEART')]].map(([v,l,ic])=>`<button type="button" class="seg-btn ico${(v==='cardio')===cardioMode?' active':''}" data-sm="${v}" aria-pressed="${(v==='cardio')===cardioMode}" aria-label="${l}" title="${l}">${ic}</button>`).join('')}</div>`;
   bar.querySelectorAll('[data-sm]').forEach(b=> b.addEventListener('click', ()=>{
@@ -2983,21 +2992,24 @@ function renderHomeView(keepPeriodOpen){
       ${item('Série en cours', currentStreakDays()+'<span style="font-size:12px;color:var(--muted);"> j</span>', 'jours consécutifs')}
       ${item('Nouveaux PR', newPr, 'exercice(s) avec un record')}
     </div>
-    <div class="section-title" style="margin-top:6px;">Séances récentes</div>
+    <div class="card-head" style="margin-top:6px;"><div class="section-title" style="margin-bottom:0;">Séances récentes</div>${state.sessions.length?'<button type="button" class="btn ghost" style="padding:4px 10px;font-size:11.5px;min-height:44px;" data-home-sessions-all>Voir tout</button>':''}</div>
       ${recent.length===0 ? emptyState('CAL','Aucune séance pour l\'instant','Utilise « Nouvelle séance » pour saisir ta première séance (importer : menu Données).') : `
-      <table class="tbl-cards"><thead><tr><th>Date</th><th>Séance</th><th>Exercices</th><th>Volume</th></tr></thead>
+      <table class="tbl-cards"><thead><tr><th>Date</th><th>Séance</th><th>Exercices</th><th>Durée</th><th>Volume</th></tr></thead>
       <tbody>
       ${recent.map(s=>`
         <tr class="clickable" data-session="${s.id}">
           <td class="mono" data-label="Date">${fmtDateShort(s.date)}</td>
           <td data-label="Séance">${sessionBadge(s.name)}</td>
           <td data-label="Exercices">${s.entries.length}</td>
+          <td class="mono" data-label="Durée">${s.duration!=null?cardioFormatDuration(s.duration):'—'}</td>
           <td class="mono" data-label="Volume">${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td>
         </tr>`).join('')}
       </tbody></table>`}
     </div>
     ${cardioHomeHtml(item, range)}
     </div>`;
+  const homeSessionsAll = el.querySelector('[data-home-sessions-all]');
+  if(homeSessionsAll) homeSessionsAll.addEventListener('click', ()=>{ state.sessionsShow = 'sessions'; switchView('sessions'); });
   const homeCardioAll = el.querySelector('[data-home-cardio-all]');
   if(homeCardioAll) homeCardioAll.addEventListener('click', ()=>{ state.sessionsShow = 'cardio'; switchView('sessions'); });
   el.querySelectorAll('[data-home-cardio-row]').forEach(n=> n.addEventListener('click', ()=> openCardioSummaryModal(n.dataset.homeCardioRow)));
@@ -4352,7 +4364,10 @@ function copyCardioTxt(id){
   copyTextToClipboard(buildCardioTxt(c), 'Séance cardio copiée dans le presse-papier');
 }
 function openDayModal(iso, sessions, cardioList){
-  const blocks = (sessions||[]).map(s=>sessionDetailHtml(s)).concat((cardioList||[]).map(c=>cardioSummaryHtml(c)));
+  const mixed = (sessions||[]).length>0 && (cardioList||[]).length>0;
+  const band = (col, icon, txt)=> mixed ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:10px;border-radius:9px;font-weight:700;font-size:13px;color:${col};background:${col}1f;border:1px solid ${col}66;"><span class="dom-mark" style="color:${col};">${iconSvg(icon)}</span>${txt}</div>` : '';
+  const blocks = (sessions||[]).map(s=>band(sessionTypeInfo(s.name).color,'DUMBBELL','Séance — '+escapeHtml(sessionTypeInfo(s.name).label||s.name))+sessionDetailHtml(s))
+    .concat((cardioList||[]).map(c=>band(cardioComboColor(c),'HEART','Séance cardio — '+CARDIO_KINDS[c.kind]+' · '+CARDIO_ACTIVITIES[c.activity])+cardioSummaryHtml(c)));
   openModal(`
     <div class="modal-head">
       <h3 style="font-size:24px;">${fmtDateFR(iso)}</h3>
@@ -4415,7 +4430,8 @@ async function deleteSession(sid){
 /* ============================= CARDIO VIEW ============================= */
 state.cardioFilter = {kind:'all', activity:'all'}; // filtres de la liste cardio (non mémorisés)
 function cardioBadge(c){
-  return `<span class="badge cardio-${c.kind}">${CARDIO_KINDS[c.kind]}</span> <span class="status-pill" style="color:${cardioComboColor(c)};border-color:${cardioComboColor(c)}66;background:${cardioComboColor(c)}1f;">${CARDIO_ACTIVITIES[c.activity]}</span>`;
+  const col = cardioComboColor(c), st = `color:${col};border-color:${col}66;background:${col}1f;`;
+  return `<span class="status-pill" style="margin-left:0;${st}">${CARDIO_KINDS[c.kind]}</span> <span class="status-pill" style="${st}">${CARDIO_ACTIVITIES[c.activity]}</span>`;
 }
 function filteredCardio(noPeriod){
   const f = state.cardioFilter;
@@ -4869,7 +4885,7 @@ function drawSessionsList(){
     if(s.kcal!=null) w.push(`${s.kcal} kcal`);
     if(s.hrAvg!=null) w.push(`${s.hrAvg}♥`);
     if(s.hrMax!=null) w.push(`${s.hrMax}♥max`);
-    return `<tr class="clickable" data-edit-session="${s.id}"><td class="mono" data-label="Date">${fmtDateShort(s.date)}</td><td data-label="Type">${domMark('s')}${sessionBadge(s.name)} <span class="status-pill ${s.validated?'done':'open'}">${s.validated?'Validée':'En cours'}</span></td><td class="mono" data-label="Contenu">${s.entries.length} exercice${s.entries.length>1?'s':''}${dot}${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td><td class="mono" data-label="Données montre" style="font-size:11.5px;color:var(--muted);">${w.length?w.join(' · '):'—'}</td><td data-label=""><button type="button" class="btn ghost icon-btn-square" data-export-session="${s.id}" title="Exporter cette séance en JSON" aria-label="Exporter cette séance en JSON">${exportIcon}</button></td></tr>`;
+    return `<tr class="clickable" data-edit-session="${s.id}"><td class="mono" data-label="Date">${fmtDateShort(s.date)}</td><td data-label="Type">${domMark('s')}${sessionBadge(s.name)} ${s.validated?'':'<span class="status-pill open">En cours</span>'}</td><td class="mono" data-label="Contenu">${s.entries.length} exercice${s.entries.length>1?'s':''}${dot}${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td><td class="mono" data-label="Données montre" style="font-size:11.5px;color:var(--muted);">${w.length?w.join(' · '):'—'}</td><td data-label=""><button type="button" class="btn ghost icon-btn-square" data-export-session="${s.id}" title="Exporter cette séance en JSON" aria-label="Exporter cette séance en JSON">${exportIcon}</button></td></tr>`;
   };
   const rowC = c=>{
     const w = [cardioFormatSpeed(c), cardioFormatPace(c)];
