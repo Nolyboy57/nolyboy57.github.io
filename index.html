@@ -3,7 +3,7 @@
 <head>
 <!-- FONTE-PROGRESS
 version: 5.22
-terminé: v5.22 (correctifs : Voir tout + durée + sans tag « Validée » sur l'Accueil, tags cardio en couleur de combinaison, calendrier rectangulaire, bandeaux séance / séance cardio dans la fiche du jour, filtres de la liste à la ligne sur mobile, bascule des stats sur la ligne du titre (#stats-mode-bar en absolu, positionStatsModeBar), fondus des onglets par masque CSS) ; avant : v5.21 (cahier v5.20→v5.21, lots 1 à 7).
+terminé: v5.22 (correctifs : Voir tout (en haut du widget, comme le cardio), tag cardio unique par combinaison + durée + sans tag « Validée » sur l'Accueil, tags cardio en couleur de combinaison, calendrier rectangulaire, bandeaux séance / séance cardio dans la fiche du jour, filtres de la liste à la ligne sur mobile, bascule des stats sur la ligne du titre (#stats-mode-bar en absolu, positionStatsModeBar), fondus des onglets par masque CSS) ; avant : v5.21 (cahier v5.20→v5.21, lots 1 à 7).
 prochaine: rien en attente.
 notes (ne garder que ce qui sert aux futures modifications) :
 - Titres : titre = nom de l'onglet, sous-titre court (statsHeadTexts pour les stats, mis à jour par showStatsTab). Vocabulaire : « séance » = musculation, « séance cardio » = cardio ; jamais « muscu » à l'écran.
@@ -2985,14 +2985,14 @@ function renderHomeView(keepPeriodOpen){
     ${toClassify>0 ? `<button type="button" class="home-alert" id="home-classify">${toClassify} exercice${toClassify>1?'s':''} à classer <span aria-hidden="true">→</span></button>` : ''}
     <div class="home-blocks">
     <div class="card home-block home-block-sessions">
-    <div class="section-title">Séances</div>
+    <div class="card-head"><div class="section-title" style="margin-bottom:0;">Séances</div>${state.sessions.length?'<button type="button" class="btn ghost" style="padding:4px 10px;font-size:11.5px;min-height:44px;" data-home-sessions-all>Voir tout</button>':''}</div>
     <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:0 0 14px;">
       ${item('Séances', kpi.count, 'sur cette période')}
       ${item('Volume', Math.round(kpi.volume).toLocaleString('fr-FR')+kg, 'sur cette période')}
       ${item('Série en cours', currentStreakDays()+'<span style="font-size:12px;color:var(--muted);"> j</span>', 'jours consécutifs')}
       ${item('Nouveaux PR', newPr, 'exercice(s) avec un record')}
     </div>
-    <div class="card-head" style="margin-top:6px;"><div class="section-title" style="margin-bottom:0;">Séances récentes</div>${state.sessions.length?'<button type="button" class="btn ghost" style="padding:4px 10px;font-size:11.5px;min-height:44px;" data-home-sessions-all>Voir tout</button>':''}</div>
+    <div class="section-title" style="margin-top:6px;">Séances récentes</div>
       ${recent.length===0 ? emptyState('CAL','Aucune séance pour l\'instant','Utilise « Nouvelle séance » pour saisir ta première séance (importer : menu Données).') : `
       <table class="tbl-cards"><thead><tr><th>Date</th><th>Séance</th><th>Exercices</th><th>Durée</th><th>Volume</th></tr></thead>
       <tbody>
@@ -4431,7 +4431,7 @@ async function deleteSession(sid){
 state.cardioFilter = {kind:'all', activity:'all'}; // filtres de la liste cardio (non mémorisés)
 function cardioBadge(c){
   const col = cardioComboColor(c), st = `color:${col};border-color:${col}66;background:${col}1f;`;
-  return `<span class="status-pill" style="margin-left:0;${st}">${CARDIO_KINDS[c.kind]}</span> <span class="status-pill" style="${st}">${CARDIO_ACTIVITIES[c.activity]}</span>`;
+  return `<span class="status-pill" style="margin-left:0;${st}">${CARDIO_KINDS[c.kind]} · ${CARDIO_ACTIVITIES[c.activity]}</span>`;
 }
 function filteredCardio(noPeriod){
   const f = state.cardioFilter;
