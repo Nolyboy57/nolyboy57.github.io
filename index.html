@@ -2,8 +2,8 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.23
-terminé: v5.23 (tags cardio = même pastille que les séances, avec petit point de la couleur de la combinaison ; éditeur cardio aux couleurs de la combinaison choisie : bordure, titre, boutons actifs, puce Cardio) ; avant : v5.22 (correctifs : Voir tout (en haut du widget, comme le cardio), tag cardio unique par combinaison + durée + sans tag « Validée » sur l'Accueil, tags cardio en couleur de combinaison, calendrier rectangulaire, bandeaux séance / séance cardio dans la fiche du jour, filtres de la liste à la ligne sur mobile, bascule des stats sur la ligne du titre (#stats-mode-bar en absolu, positionStatsModeBar), fondus des onglets par masque CSS) ; avant : v5.21 (cahier v5.20→v5.21, lots 1 à 7).
+version: 5.25
+terminé: v5.25 (filtres cardio de la liste sans couleur sauf combinaison Type + Activité détectée ; séance sans exercice non enregistrée même avec un type choisi) ; avant : v5.24 (correctif mobile : le calendrier ne déborde plus à droite) ; avant : v5.23 (tags cardio = même pastille que les séances, avec petit point de la couleur de la combinaison ; éditeur cardio aux couleurs de la combinaison choisie : bordure, titre, boutons actifs, puce Cardio) ; avant : v5.22 (correctifs : Voir tout (en haut du widget, comme le cardio), tag cardio unique par combinaison + durée + sans tag « Validée » sur l'Accueil, tags cardio en couleur de combinaison, calendrier rectangulaire, bandeaux séance / séance cardio dans la fiche du jour, filtres de la liste à la ligne sur mobile, bascule des stats sur la ligne du titre (#stats-mode-bar en absolu, positionStatsModeBar), fondus des onglets par masque CSS) ; avant : v5.21 (cahier v5.20→v5.21, lots 1 à 7).
 prochaine: rien en attente.
 notes (ne garder que ce qui sert aux futures modifications) :
 - Titres : titre = nom de l'onglet, sous-titre court (statsHeadTexts pour les stats, mis à jour par showStatsTab). Vocabulaire : « séance » = musculation, « séance cardio » = cardio ; jamais « muscu » à l'écran.
@@ -1873,8 +1873,8 @@ function newSessionIsBlank(sid){
   if(!g('session-date') || editorSid!==sid) return false;           // l'éditeur de cette séance n'est pas affiché
   if(document.querySelector('[data-entry-exercise]')) return false;  // au moins un exercice ajouté
   if(s.entries && s.entries.length) return false;
-  const nm = g('session-name'), nt = g('session-notes');
-  if(nm && nm.value.trim()!=='') return false;
+  /* Le type choisi (nom) ne compte pas : une séance sans exercice n'est pas enregistrée, même avec un type sélectionné. */
+  const nt = g('session-notes');
   if(nt && nt.value.trim()!=='') return false;
   const filled = ['session-duration-h','session-duration-m','session-kcal','session-hravg','session-hrmax'].some(id=>{ const el=g(id); return el && el.value!==''; });
   return !filled;
@@ -4287,12 +4287,13 @@ function drawCalendarGrid(){
     const st = document.createElement('style');
     st.id='cal-style';
     st.textContent = `
-      .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px;}
+      /* minmax(0,1fr) + min-width:0 : sinon l'aspect-ratio + min-height des cases imposent une largeur minimale (≈ 57 px × 7) et la grille déborde à droite sur mobile */
+      .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px;}
       .cal-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:14px;font-size:12px;color:var(--muted);}
       .cal-legend-item{display:inline-flex;align-items:center;gap:6px;}
       .cal-legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
       .cal-dow{font-size:11px;color:var(--muted-2);text-transform:uppercase;text-align:center;padding-bottom:6px;font-weight:600;}
-      .cal-cell{background:var(--surface-2);border:1px solid var(--border);border-radius:9px;min-height:74px;padding:8px;transition:border-color .12s, transform .12s, box-shadow .12s;}
+      .cal-cell{min-width:0;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;min-height:74px;padding:8px;transition:border-color .12s, transform .12s, box-shadow .12s;}
       .cal-cell.empty-cell{background:transparent;border-color:transparent;}
       .cal-cell.has-session{cursor:pointer;background:var(--sb-bg, var(--surface-2));border-color:var(--sb-border, var(--border));}
       .cal-cell.has-session:hover{border-color:var(--sb-color, var(--accent));transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,0.28);}
@@ -4863,8 +4864,12 @@ function listPillsHtml(){
   const groups = [];
   if(showsSessions()) groups.push(LIST_TYPE_KEYS.map(k=> pill('types', k, k==='other' ? 'Autres' : SESSION_TYPES[k].label, SESSION_TYPES[k].color, d.types.includes(k))).join(''));
   if(showsCardio()){
-    groups.push(Object.entries(CARDIO_KINDS).map(([k,l])=> pill('kinds', k, l, k==='outdoor' ? 'var(--cardio-outdoor)' : 'var(--steel)', d.kinds.includes(k))).join(''));
-    groups.push(Object.entries(CARDIO_ACTIVITIES).map(([k,l])=> pill('acts', k, l, 'var(--accent)', d.acts.includes(k))).join(''));
+    /* Puces Type / Activité sans couleur ; elles prennent la couleur de la combinaison seulement quand un Type ET une Activité
+       sont sélectionnés (une seule combinaison possible, ex. Tapis + Marche). */
+    const comboCol = (d.kinds.length===1 && d.acts.length===1) ? CARDIO_COMBO_COLORS[d.kinds[0]+'_'+d.acts[0]] : null;
+    const col = on=> (on && comboCol) ? comboCol : 'var(--text)';
+    groups.push(Object.entries(CARDIO_KINDS).map(([k,l])=> pill('kinds', k, l, col(d.kinds.includes(k)), d.kinds.includes(k))).join(''));
+    groups.push(Object.entries(CARDIO_ACTIVITIES).map(([k,l])=> pill('acts', k, l, col(d.acts.includes(k)), d.acts.includes(k))).join(''));
   }
   return groups.join(sep);
 }
@@ -4879,6 +4884,7 @@ function drawSessionsFilters(){
     const arr = state.sessionsDetail[grp], i = arr.indexOf(val);
     if(i>=0) arr.splice(i,1); else arr.push(val);
     const on = arr.includes(val); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on));
+    if(grp==='kinds' || grp==='acts'){ drawSessionsFilters(); } // la couleur des puces dépend de la combinaison sélectionnée
     drawSessionsList();
   }));
 }
