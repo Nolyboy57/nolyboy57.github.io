@@ -2,13 +2,15 @@
 <html lang="fr">
 <head>
 <!-- FONTE-PROGRESS
-version: 5.20
-terminé: v5.20 (cahier E1-E3 : onglet actif centré dans la barre (bindTabsScroll), piste de défilement toujours présente + fondu au changement de mode, Comparer par mode muscu/cardio avec filtres state.compareCardioFilter) ; avant : v5.19 (cahier ajustements cardio/navigation C1-C4) — C1 (fiche résumé cardio : cardioSummaryHtml/openCardioSummaryModal/downloadCardio/buildCardioTxt/copyCardioTxt, utilisée par le calendrier, l'Accueil et les stats cardio) ; C2 (barre d'onglets : zone défilante .section-tabs-scroll + bouton de bascule fixe, fondus .has-more-left/-right et ligne .tabs-progress, updateTabsScroll) ; C3 (plus de défilement vertical : overflow-y:hidden, touch-action:pan-x) ; C4 (stats cardio : cardioRangeSpanDays/cardioTrendBuckets jour/semaine/mois, jours de la semaine par type via state.cardioWeekdayMode) ; avant : v5.18 (cahier navigation/calendriers N1-N4 + recette) — N1 (onglet Cardio retiré de la navigation ; bascule Muscu/Cardio dans Séances via state.sessionsMode + #stats-mode-btn partagé avec Statistiques) ; N2 (calendrier : logo « calques » #cal-mode-btn allumé = vue globale, en-tête mobile en grille 2 lignes sans titre : Aujourd'hui + logo / mois, hauteur fixe) ; N3 (couleur unique OTHER_DOMAIN_COLOR = gris pour l'autre domaine dans les deux sens, CARDIO_UNIFORM_COLOR/MUSCU_UNIFORM_COLOR supprimées) ; N4 (jour partagé muscu+cardio en vue globale : classe .is-split, fond en diagonale --sp-a/--sp-b, points masqués sur mobile) ; avant : ajustements cardio D1-D5 (v5.17)
-prochaine: aucune (cahier v5.20 terminé)
+version: 5.21
+terminé: cahier v5.20 → v5.21, lots 1 à 7 (Extérieur, couleurs Marche/Course, séance vide non enregistrée, mise en page PC, pied à trois lignes, période d'Accueil toujours ouverte, Séances Liste/Calendrier unifiés, créateur unique, stats à onglets communs + bascule Séances/Cardio, Accueil en deux blocs, titres/sous-titres harmonisés, vocabulaire « séance » / « séance cardio »).
+prochaine: rien en attente.
 notes (ne garder que ce qui sert aux futures modifications) :
-- Statistiques : bascule Muscu/Cardio (state.statsMode, #stats-mode-btn, filtre `mode` des onglets dans visibleTabs) ; Comparer commun ; switchView synchronise statsMode.
-- Cardio : session = {id,date,time,kind,activity,durationMin,distanceKm,place,avgHR,maxHR,kcal,note} ; vitesse/allure jamais stockées (cardioSpeedKmh/cardioPaceMinKm) ; state.cardio + saveCardio/readCardioForUser/writeCardioForUser ; refreshCardioViews() après toute modification.
-- Cœur (FC session par session) : renderHRChartGeneric(cfg) partagé muscu (prefix 'hr') / cardio ('chr') ; ids {prefix}-trend-row/-legend/-wrap/-inner/-axis-col, {prefix}-extremes-legend. Filtre période cardio = état 'dash' ; state.cardioFilter = {kind, activity} seulement.
+- Titres : titre = nom de l'onglet, sous-titre court (statsHeadTexts pour les stats, mis à jour par showStatsTab). Vocabulaire : « séance » = musculation, « séance cardio » = cardio ; jamais « muscu » à l'écran.
+- Statistiques : onglets communs (Résumé, Progression, Muscles, Cœur, Records, Comparer) ; bascule Séances/Cardio (state.statsMode) en logos dans #stats-mode-bar sous la barre d'onglets, hauteur réservée, visible seulement dans Résumé/Cœur/Comparer (renderStatsModeBar) ; tabView(t) donne la vue selon le mode ; switchView synchronise statsMode.
+- Séances : vues 'sessions' (liste fusionnée, drawSessionsList/drawSessionsFilters) et 'calendar' ; les vues 'cardio'/'cardiocal' ne sont plus atteignables (conteneurs vides conservés). Création unique via openNewSession(date).
+- Cardio : une séance cardio = {id,date,time,kind,activity,durationMin,distanceKm,place,avgHR,maxHR,kcal,note} ; vitesse/allure jamais stockées (cardioSpeedKmh/cardioPaceMinKm) ; state.cardio + saveCardio/readCardioForUser/writeCardioForUser ; refreshCardioViews() après toute modification.
+- Cœur (FC séance par séance) : renderHRChartGeneric(cfg) partagé muscu (prefix 'hr') / cardio ('chr') ; ids {prefix}-trend-row/-legend/-wrap/-inner/-axis-col, {prefix}-extremes-legend. Filtre période cardio = état 'dash' ; state.cardioFilter = {kind, activity} seulement.
 - Fichier unique, sans build. Mobile = ≤ 600 px, bureau ≥ 861 px. Cibles tactiles ≥ 44 px, champs ≥ 16 px.
 - Couleurs : jamais en dur ; COLORS + USER_COLOR_POOL, variables CSS (--accent, --surface…). Ne pas renommer ids HTML, fonctions ni clés de stockage ; stockage via readStored/writeStored.
 - Éditeur : le champ caché [data-entry-exercise] est la source de vérité de l'exercice ; la liste de variante n'existe que si l'exercice a des variantes ; persistSessionEditor relit le DOM. Séance validée = lecture seule.
@@ -37,6 +39,8 @@ notes (ne garder que ce qui sert aux futures modifications) :
   --accent-hover:#56B85F;
   --accent-rgb:63,174,73;
   --steel:#5B84A6;
+  --cardio-outdoor:#B08D57; /* couleur propre du type Extérieur (indépendante du profil) ; Tapis utilise --steel */
+  --cardio-outdoor-rgb:176,141,87;
   --good:#6FCB9F;
   --warn:#F2A541;
   --bad:#D46A6A;
@@ -49,7 +53,11 @@ notes (ne garder que ce qui sert aux futures modifications) :
    (palette ou couleur libre) et modifiable dans les réglages. Appliquée en direct sur <body> via des variables CSS
    inline (--accent / --accent-dim / --accent-hover / --accent-rgb), cf. applyUserTheme(). */
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;overflow-x:hidden;}
+html,body{margin:0;padding:0;}
+/* html seul porte overflow-x:hidden ; body en 'clip' : deux 'hidden' imbriqués faisaient de body un conteneur de défilement
+   et cassaient le position:sticky du bandeau de gauche (il défilait avec la page et se retrouvait coupé). */
+html{overflow-x:hidden;}
+body{overflow-x:clip;}
 body{
   max-width:100vw;
   background:
@@ -79,7 +87,7 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:0.02em;font-weight:400;m
   border-right:1px solid var(--border);
   display:flex;flex-direction:column;
   padding:22px 14px;
-  position:sticky;top:0;height:100vh;
+  position:sticky;top:0;height:100vh;height:100dvh;align-self:flex-start;
 }
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 22px 8px;}
 .brand-mark{
@@ -93,7 +101,7 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:0.02em;font-weight:400;m
 .brand-text{font-family:var(--font-display);font-size:26px;line-height:1;letter-spacing:0.06em;}
 .brand-sub{font-family:var(--font-body);font-size:10px;color:var(--muted-2);letter-spacing:0.08em;text-transform:uppercase;margin-top:2px;}
 
-.nav{display:flex;flex-direction:column;gap:3px;flex:1;}
+.nav{display:flex;flex-direction:column;gap:3px;flex:1;min-height:0;overflow-y:auto;}  /* écran bas : le menu défile, le pied reste visible */
 .nav-item{
   display:flex;align-items:center;gap:11px;
   padding:10px 12px;border-radius:8px;
@@ -163,9 +171,11 @@ h1,h2,h3{font-family:var(--font-display);letter-spacing:0.02em;font-weight:400;m
 .user-menu-action.active{color:var(--text);border-color:var(--accent);}
 .user-menu-action svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;flex-shrink:0;}
 
-.main{flex:1;padding:30px 38px 60px;max-width:1180px;}
+.main{flex:1;min-width:0;padding:30px 38px 60px;max-width:1800px;}  /* toute la largeur à droite du bandeau (plafond ultra-large) */
 .home-hero{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
 .home-cta{font-size:16px;padding:14px 24px;}
+.home-blocks{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:16px;align-items:start;}
+@media(min-width:1200px){.home-blocks{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}}
 .home-resume{display:flex;align-items:center;justify-content:space-between;gap:12px;border-color:var(--accent);margin-bottom:6px;}
 .home-resume-main{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;min-height:44px;}
 button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
@@ -199,32 +209,44 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .section-tab{background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:0;flex-shrink:0;padding:0 16px;height:44px;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;transition:color .15s, border-color .15s;}
 .section-tab:hover{color:var(--text);}
 .section-tab.active{color:var(--text);border-bottom-color:var(--accent);}
-.stats-mode-btn{margin-left:0;flex-shrink:0;align-self:center;width:36px;height:36px;margin-bottom:0;padding:0;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--accent);background:var(--surface-2);color:var(--accent);cursor:pointer;}
-.stats-mode-btn svg{width:19px;height:19px;}
-.stats-mode-btn:hover{background:var(--surface-3);}
-@media(max-width:600px){.stats-mode-btn{width:44px;height:44px;}}
+.section-tabs.with-mode-bar{margin-bottom:10px;}
+.stats-mode-bar{height:52px;box-sizing:border-box;margin:0 0 14px;display:flex;align-items:center;}
 .cardio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 .cardio-grid .set-field{min-width:0;}
 .modal.session-modal{overflow-x:hidden;}
 .modal.session-modal .modal-actions-sticky button{min-width:0;}
-.cal-mode-btn{flex-shrink:0;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--accent);background:var(--surface-2);color:var(--accent);cursor:pointer;}
-.cal-mode-btn svg{width:19px;height:19px;}
-.cal-mode-btn:hover{background:var(--surface-3);}
-@media(max-width:600px){.cal-mode-btn{width:44px;height:44px;}}
-.cal-mode-btn[aria-pressed="true"]{background:var(--accent);color:var(--bg);}
 .cal-head-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
 .cal-nav{display:flex;align-items:center;gap:10px;}
 .cal-nav .cal-label{font-size:15px;min-width:150px;text-align:center;}
-/* Mobile : titre masqué (l'onglet « Calendrier » l'indique déjà) ; 1re ligne = Aujourd'hui + logo vue globale, 2e ligne = mois ; hauteur fixe, le tableau ne bouge pas */
+/* Mobile : titre masqué (l'onglet « Calendrier » l'indique déjà) ; 1re ligne = Aujourd'hui + choix Tout/Séances/Cardio, 2e ligne = mois ; hauteur fixe, le tableau ne bouge pas */
 @media(max-width:600px){
   .page-head.cal-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;margin-bottom:12px;}
   .cal-head .cal-head-title{display:none;}
   .cal-head-controls{display:contents;}
   .cal-head #cal-today{grid-column:1;justify-self:start;min-height:44px;}
-  .cal-head #cal-mode-btn{grid-column:2;grid-row:1;}
+  .cal-head #cal-show-group{grid-column:2;grid-row:1;width:auto;flex-wrap:nowrap;}
+  .cal-head #cal-show-group .seg-btn{min-height:44px;padding:0 10px;}
   .cal-nav{grid-column:1 / -1;grid-row:2;justify-content:space-between;}
   .cal-nav .cal-label{flex:1;min-width:0;}
   .cal-nav button.btn.icon-btn-square{width:44px;height:44px;}
+}
+.list-filters{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:0 0 14px;}
+.list-filters .seg-group{flex-shrink:0;}
+.list-pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1 1 320px;min-width:0;}
+.list-pill-sep{width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;}
+.fpill{--pc:var(--accent);padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:background .15s,border-color .15s,color .15s;}
+.fpill:hover{color:var(--text);border-color:var(--pc);}
+.fpill.active{background:var(--pc);border-color:var(--pc);color:var(--bg);}
+.list-reset{visibility:hidden;}
+.list-reset.on{visibility:visible;}
+.dom-mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:var(--surface-3);color:var(--muted);margin-right:8px;vertical-align:middle;flex-shrink:0;}
+.dom-mark svg{width:15px;height:15px;}
+@media(max-width:600px){
+  .list-filters{flex-direction:column;align-items:stretch;gap:8px;}
+  .list-pills{flex:none;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
+  .list-pills::-webkit-scrollbar{display:none;}
+  .fpill{min-height:44px;}
+  button.btn.list-reset{min-height:44px;align-self:flex-start;}
 }
 .view{display:none;animation:fadeIn .25s ease;}
 .view.active{display:block;}
@@ -349,6 +371,11 @@ button.btn.home-resume-sum{min-height:44px;flex-shrink:0;}
 .seg-btn{background:transparent;border:none;color:var(--muted);padding:6px 13px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;}
 .seg-btn:hover{color:var(--text);}
 .seg-btn.active{background:var(--accent);color:#fff;}
+.seg-btn.ico{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:40px;padding:0 10px;}
+.seg-btn.ico svg{width:19px;height:19px;}
+/* Calendrier : largeur limitée et centrée ; les cases gardent une proportion et s'agrandissent vers le bas */
+#cal-grid-wrap{max-width:820px;margin-left:auto;margin-right:auto;}
+@media(min-width:601px){#cal-grid-wrap .cal-cell{aspect-ratio:1 / 0.9;min-height:74px;}}
 
 .table-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
 .table-toolbar input[type=text]{flex:1 1 200px;min-width:120px;}
@@ -654,7 +681,7 @@ label.field-label{font-size:11px;color:var(--muted);text-transform:uppercase;let
 
 .muted{color:var(--muted);}
 .badge.cardio-treadmill{background:rgba(91,132,166,0.18);color:var(--steel);}
-.badge.cardio-outdoor{background:rgba(var(--accent-rgb),0.16);color:var(--accent);}
+.badge.cardio-outdoor{background:rgba(var(--cardio-outdoor-rgb),0.18);color:var(--cardio-outdoor);}
 .badge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:0.03em;}
 .badge.ok{background:rgba(111,203,159,0.15);color:var(--good);}
 .badge.warn{background:rgba(242,165,65,0.15);color:var(--warn);}
@@ -892,6 +919,21 @@ td.mono{color:var(--muted);}
   .filter-bar .filter-chip[aria-expanded="true"] .pl-full{display:inline;}
   .filter-bar .filter-chip[aria-expanded="true"] .pl-mode{display:none;}
 }
+
+/* Filtre période de l'Accueil : barre toujours dépliée (une ligne sur PC, deux sur mobile) */
+.period-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;width:100%;box-sizing:border-box;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:12px;}
+.period-bar .seg-group{background:transparent;border:0;padding:0;gap:4px;}
+.period-bar .seg-btn{padding:7px 14px;}
+.period-bar .period-nav,.period-bar .period-custom{padding-left:14px;border-left:1px solid var(--border);}
+.period-bar .period-nav-label{flex:0 0 205px;}
+@media(max-width:600px){
+  .period-bar{gap:6px;padding:6px;}
+  .period-bar .seg-group{width:100%;}
+  .period-bar .seg-btn{padding:8px 4px;}
+  .period-bar .period-nav,.period-bar .period-custom{width:100%;padding-left:0;border-left:0;}
+  .period-bar .period-nav-label{flex:1;}
+  .filter-bar:has(.period-bar){position:static;}
+}
 </style>
 </head>
 <body>
@@ -920,11 +962,13 @@ td.mono{color:var(--muted);}
     <div class="nav" id="nav"></div>
     <div class="sidebar-foot">
       <span id="foot-sessions">0 séance</span>
+      <span id="foot-cardio">0 séance cardio</span>
       <span id="foot-exos">0 exercice</span>
     </div>
   </div>
   <div class="main">
     <div class="section-tabs" id="section-tabs" role="tablist"></div>
+    <div class="stats-mode-bar" id="stats-mode-bar" style="display:none;"></div>
     <div class="view active" id="view-home"></div>
     <div class="view" id="view-dashboard"></div>
     <div class="view" id="view-compare"></div>
@@ -969,7 +1013,6 @@ const COLORS = {
    une couleur unique pour « le cardio » dans le calendrier des séances, et COLORS.muted pour « la muscu » dans le calendrier cardio.
    Toutes distinctes des couleurs de SESSION_TYPES. */
 const CARDIO_COMBO_COLORS = {treadmill_walk:'#2EC4D6', treadmill_run:'#E8D44D', outdoor_walk:'#8FB93F', outdoor_run:'#7B6CF6'};
-const OTHER_DOMAIN_COLOR = COLORS.muted; // couleur unique de « l'autre domaine » dans la vue globale des calendriers (muscu en mode Cardio, cardio en mode Muscu)
 function cardioComboColor(c){ return CARDIO_COMBO_COLORS[c.kind+'_'+c.activity] || CARDIO_COMBO_COLORS.treadmill_walk; }
 const USER_COLOR_POOL = ['#3FAE49','#7341C8','#D48A3F','#3FA0C9','#C9508A','#8FB93F','#C94F4F','#4F7FC9'];
 /* Réglages des règles de couleur de profil (voir §10.2 du cahier des charges) */
@@ -1076,15 +1119,15 @@ function sessionBadge(name, size){
   </span>`;
 }
 
-/* Menu principal : 6 entrées (Cardio vit dans Séances via la bascule Muscu/Cardio). Chaque entrée regroupe des onglets qui pointent vers les écrans (views) existants.
+/* Menu principal : 5 entrées (les séances cardio vivent dans Séances, avec la musculation). Chaque entrée regroupe des onglets qui pointent vers les écrans (views) existants.
    `when` masque un onglet (Comparer seulement s'il y a au moins 2 profils). Une entrée à un seul onglet n'affiche pas de barre d'onglets. */
 const NAV_SECTIONS = [
   {id:'home', label:'Accueil', icon:'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10',
     tabs:[{view:'home', label:'Accueil'}]},
   {id:'sessions', label:'Séances', icon:'DUMBBELL',
-    tabs:[{view:'sessions', label:'Liste', mode:'muscu'}, {view:'calendar', label:'Calendrier', mode:'muscu'}, {view:'cardio', label:'Liste', mode:'cardio'}, {view:'cardiocal', label:'Calendrier', mode:'cardio'}]}, // bascule Muscu/Cardio (state.sessionsMode) ; les stats cardio vivent dans Statistiques > Cardio
+    tabs:[{view:'sessions', label:'Liste'}, {view:'calendar', label:'Calendrier'}]}, // séances et séances cardio ensemble ; filtre Tout/Séances/Cardio partagé (state.sessionsShow)
   {id:'stats', label:'Statistiques', short:'Stats', icon:'M4 19V10M10 19V5M16 19V13M22 19H2',
-    tabs:[{view:'dashboard', tab:'summary', label:'Résumé', mode:'muscu'}, {view:'dashboard', tab:'progress', label:'Progression', mode:'muscu'}, {view:'dashboard', tab:'muscles', label:'Muscles', mode:'muscu'}, {view:'dashboard', tab:'heart', label:'Cœur', mode:'muscu'}, {view:'cardiostats', tab:'summary', label:'Résumé', mode:'cardio'}, {view:'cardiostats', tab:'heart', label:'Cœur', mode:'cardio'}, {view:'records', label:'Records', mode:'muscu'}, {view:'compare', label:'Comparer', when:()=>loadUsers().length>1}]},
+    tabs:[{view:'dashboard', tab:'summary', label:'Résumé', dual:true}, {view:'dashboard', tab:'progress', label:'Progression'}, {view:'dashboard', tab:'muscles', label:'Muscles'}, {view:'dashboard', tab:'heart', label:'Cœur', dual:true}, {view:'records', label:'Records'}, {view:'compare', label:'Comparer', when:()=>loadUsers().length>1}]}, // mêmes onglets quel que soit le mode ; `dual` = a un équivalent cardio (vue 'cardiostats'), la bascule Séances/Cardio s'affiche sous la barre pour Résumé, Cœur et Comparer
   {id:'exercises', label:'Exercices', icon:'M4 12h16M4 8v8M20 8v8M2 10v4M22 10v4',
     tabs:[{view:'exercises', label:'Exercices'}]},
   {id:'data', label:'Données', icon:'SHIELD',
@@ -1115,9 +1158,10 @@ let state = {
   recMuscleFilter: '__all__',
   recSort: {key:'name', dir:'asc'},
   statsTab: 'summary', // 'summary' | 'progress' | 'muscles' | 'heart' — onglet affiché dans Statistiques
-  sessionsMode: 'muscu', // 'muscu' | 'cardio' — bascule en haut de Séances ; non mémorisé (retour à Muscu à chaque ouverture)
+  sessionsShow: 'all', // 'all' | 'sessions' | 'cardio' — affichage de Séances (liste ET calendrier) ; non mémorisé au rechargement
+  sessionsDetail: {types:[], kinds:[], acts:[]}, // pastilles de détail de la liste (types de séance, Tapis/Extérieur, Marche/Course)
   statsMode: 'muscu', // 'muscu' | 'cardio' — bascule en haut de Statistiques ; Comparer est commun aux deux
-  cardioWeekdayMode: 'count', // 'count' | 'type' — bascule du widget « Sessions par jour » des stats cardio
+  cardioWeekdayMode: 'count', // 'count' | 'type' — bascule du widget « Séances par jour » des stats cardio
   weekdayChartMode: 'count', // 'count' | 'type' — bascule du widget « Fréquence par jour de la semaine »
   muscleChartMode: 'muscle', // 'muscle' | 'sessionType' — bascule le widget "Répartition du volume"
   dashTypeFilter: '__all__', // '__all__' | 'push' | 'pull' | 'upper' | 'legs' | 'other' — filtre par type de séance du tableau de bord
@@ -1691,7 +1735,7 @@ function cardioFormatDuration(min){
 }
 async function saveCardio(){
   try{ await writeStored('cardio', state.cardio); }
-  catch(e){ showToast("Erreur de sauvegarde des sessions cardio", 'bad'); }
+  catch(e){ showToast("Erreur de sauvegarde des séances cardio", 'bad'); }
 }
 async function readCardioForUser(userId){
   return normalizeCardioList(await readStored('cardio', userId));
@@ -1812,19 +1856,46 @@ function openModal(html, preserveScroll, extraClass){
     requestAnimationFrame(()=>{ content.scrollTop = 0; });
   }
 }
+/* Séance tout juste créée par createSession : si on ferme l'éditeur sans rien avoir rempli, elle est supprimée
+   (même comportement que la session cardio : rien n'est créé tant que rien n'est saisi). */
+let newSessionId = null;
+function newSessionIsBlank(sid){
+  const s = state.sessions.find(x=>x.id===sid);
+  if(!s || s.validated || s.coop) return false;
+  const g = id=>document.getElementById(id);
+  if(!g('session-date') || editorSid!==sid) return false;           // l'éditeur de cette séance n'est pas affiché
+  if(document.querySelector('[data-entry-exercise]')) return false;  // au moins un exercice ajouté
+  if(s.entries && s.entries.length) return false;
+  const nm = g('session-name'), nt = g('session-notes');
+  if(nm && nm.value.trim()!=='') return false;
+  if(nt && nt.value.trim()!=='') return false;
+  const filled = ['session-duration-h','session-duration-m','session-kcal','session-hravg','session-hrmax'].some(id=>{ const el=g(id); return el && el.value!==''; });
+  return !filled;
+}
+async function discardNewSessionIfBlank(){
+  const sid = newSessionId;
+  if(!sid || !document.getElementById('session-date') || editorSid!==sid) return;  // éditeur absent (ex. sous-fenêtre) : on garde le suivi
+  newSessionId = null;
+  if(newSessionIsBlank(sid)){
+    state.sessions = state.sessions.filter(x=>x.id!==sid);
+    await saveSessions(); renderNav();
+  }
+}
 async function closeModal(){
   if(pendingSessionSave){
     clearTimeout(sessionSaveTimer);
     const fn = pendingSessionSave; pendingSessionSave = null;
     await fn();
   }
+  await discardNewSessionIfBlank();
+  if(state.currentView==='sessions' && document.getElementById('list-body')) drawSessionsList();
   const bg = document.getElementById('modal-bg');
   const wasActive = bg.classList.contains('active');
   bg.classList.remove('active');
   if(wasActive) unlockBodyScroll();
 }
 document.getElementById('modal-bg').addEventListener('click', (e)=>{ if(e.target.id==='modal-bg') closeModal(); });
-document.getElementById('fab-new-session').addEventListener('click', ()=>{ if(isCardioView(state.currentView)) openCardioModal(); else createSession(); });
+document.getElementById('fab-new-session').addEventListener('click', ()=>{ openNewSession(); });
 document.getElementById('mobile-user-btn').addEventListener('click', (e)=>{
   e.stopPropagation();
   const menu = document.getElementById('mobile-user-menu');
@@ -1862,20 +1933,21 @@ function unclassifiedCount(){
   return state.exercises.filter(e=>!e.classified || e.muscles.length===0).length;
 }
 function sectionOfView(view){
-  return NAV_SECTIONS.find(sec=>sec.tabs.some(t=>t.view===view)) || NAV_SECTIONS[0];
+  return NAV_SECTIONS.find(sec=>sec.tabs.some(t=>t.view===view || (t.dual && view==='cardiostats'))) || NAV_SECTIONS[0];
 }
-function sectionMode(sec){ return sec.id==='sessions' ? state.sessionsMode : state.statsMode; }
-function visibleTabs(sec){ return sec.tabs.filter(t=>(!t.when || t.when()) && (!t.mode || t.mode===sectionMode(sec))); }
+function visibleTabs(sec){ return sec.tabs.filter(t=>(!t.when || t.when())); }
+function tabView(t){ return (t.dual && state.statsMode==='cardio') ? 'cardiostats' : t.view; }
+function statsHasModeSwitch(){ return state.currentView==='compare' || ((state.currentView==='dashboard' || state.currentView==='cardiostats') && ['summary','heart'].includes(state.statsTab)); }
 function gotoSection(id){
   const sec = NAV_SECTIONS.find(x=>x.id===id);
   const tabs = visibleTabs(sec);
-  const last = tabs.find(t=>t.view===sectionLastView[sec.id]);
+  const last = tabs.find(t=>tabView(t)===sectionLastView[sec.id]);
   const target = last || tabs[0];
   if(target.tab && sec.id!=='stats') state.statsTab = target.tab;
-  switchView(target.view);
+  if(sec.id==='stats' && target.tab && !last) state.statsTab = target.tab;
+  switchView(tabView(target));
 }
 /* Barre d'onglets du bas (mobile) : mêmes entrées que la barre latérale ; bouton « + » visible sur Accueil et Séances. */
-function isCardioView(v){ return v==='cardio' || v==='cardiocal'; }
 function renderMobileTabbar(current){
   const bar = document.getElementById('mobile-tabbar');
   if(!bar) return;
@@ -1887,7 +1959,7 @@ function renderMobileTabbar(current){
   const fab = document.getElementById('fab-new-session');
   if(fab){
     fab.classList.toggle('visible', current.id==='home' || current.id==='sessions');
-    fab.setAttribute('aria-label', isCardioView(state.currentView) ? 'Nouvelle session cardio' : 'Nouvelle séance');
+    fab.setAttribute('aria-label', 'Nouvelle séance');
   }
 }
 function renderNav(){
@@ -1906,6 +1978,7 @@ function renderNav(){
   renderMobileTabbar(current);
   renderSectionTabs();
   document.getElementById('foot-sessions').textContent = state.sessions.length + (state.sessions.length>1?' séances':' séance');
+  const nCardio = (state.cardio||[]).length; document.getElementById('foot-cardio').textContent = nCardio + (nCardio>1?' séances cardio':' séance cardio');
   document.getElementById('foot-exos').textContent = state.exercises.length + (state.exercises.length>1?' exercices':' exercice');
 }
 /* Barre d'onglets de l'entrée courante (composant commun à tout le menu). */
@@ -1914,38 +1987,42 @@ function renderSectionTabs(){
   if(!wrap) return;
   const curSec = sectionOfView(state.currentView);
   const isStats = curSec.id==='stats';
-  const hasMode = isStats || curSec.id==='sessions';
   const tabs = visibleTabs(curSec);
-  wrap.style.display = (tabs.length>1 || hasMode) ? '' : 'none';
-  const isActiveTab = t=> t.view===state.currentView && (!t.tab || t.tab===state.statsTab);
-  // Statistiques : petit logo tout à droite des onglets = mode affiché (haltère = muscu, cœur = cardio) ; un clic bascule.
-  const cardioMode = sectionMode(curSec)==='cardio';
-  const modeBtn = hasMode ? `<button type="button" class="stats-mode-btn" id="stats-mode-btn" aria-label="${cardioMode?'Mode cardio — passer à la musculation':'Mode musculation — passer au cardio'}" title="${cardioMode?'Cardio — passer à la musculation':'Muscu — passer au cardio'}">${iconSvg(cardioMode?'HEART':'DUMBBELL')}</button>` : '';
+  wrap.style.display = tabs.length>1 ? '' : 'none';
+  const isActiveTab = t=> tabView(t)===state.currentView && (!t.tab || t.tab===state.statsTab);
   const oldSc = document.getElementById('section-tabs-scroll');
-  const tabsKey = curSec.id+'|'+sectionMode(curSec);
+  const tabsKey = curSec.id;
   const sameBar = !!oldSc && wrap.dataset.tabsKey===tabsKey;
   const prevLeft = sameBar ? oldSc.scrollLeft : 0;
   wrap.dataset.tabsKey = tabsKey;
-  wrap.innerHTML = `<div class="section-tabs-main${sameBar?'':' tabs-fade'}" id="section-tabs-main"><div class="section-tabs-scroll" id="section-tabs-scroll">${tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('')}</div><div class="tabs-progress" aria-hidden="true"><i></i></div></div>${modeBtn}`;
+  wrap.innerHTML = `<div class="section-tabs-main${sameBar?'':' tabs-fade'}" id="section-tabs-main"><div class="section-tabs-scroll" id="section-tabs-scroll">${tabs.map((t,k)=>`<button type="button" class="section-tab${isActiveTab(t)?' active':''}" role="tab" aria-selected="${isActiveTab(t)}" data-tab-idx="${k}">${t.label}</button>`).join('')}</div><div class="tabs-progress" aria-hidden="true"><i></i></div></div>`;
   bindTabsScroll(prevLeft, sameBar);
   wrap.querySelectorAll('[data-tab-idx]').forEach(b=> b.addEventListener('click', ()=>{
     const t = tabs[Number(b.dataset.tabIdx)];
     if(t.tab) state.statsTab = t.tab;
-    if(t.view==='cardiostats' && state.currentView==='cardiostats'){ renderSectionTabs(); renderCardioStatsView(); }
-    else if(t.view===state.currentView && t.tab) showStatsTab(); else switchView(t.view);
+    const v = tabView(t);
+    if(isStats && !t.dual && v!=='compare') state.statsMode = 'muscu';  // Progression, Muscles, Records : toujours le mode Séances
+    if(v==='cardiostats' && state.currentView==='cardiostats'){ renderSectionTabs(); renderCardioStatsView(); }
+    else if(v===state.currentView && t.tab) showStatsTab(); else switchView(v);
   }));
-  const mb = document.getElementById('stats-mode-btn');
-  if(mb) mb.addEventListener('click', ()=>{
-    if(!isStats){ // Séances : même sous-onglet (Liste → Liste, Calendrier → Calendrier)
-      const cal = state.currentView==='calendar' || state.currentView==='cardiocal';
-      switchView(cardioMode ? (cal ? 'calendar' : 'sessions') : (cal ? 'cardiocal' : 'cardio'));
-      return;
-    }
-    state.statsMode = cardioMode ? 'muscu' : 'cardio';
+  renderStatsModeBar();
+}
+/* Bascule Séances / Cardio sous la barre d'onglets : zone de hauteur constante (vide hors Résumé, Cœur et Comparer) pour que rien ne bouge. */
+function renderStatsModeBar(){
+  const bar = document.getElementById('stats-mode-bar'); if(!bar) return;
+  const isStats = sectionOfView(state.currentView).id==='stats';
+  bar.style.display = isStats ? '' : 'none';
+  document.getElementById('section-tabs').classList.toggle('with-mode-bar', isStats);
+  if(!isStats){ bar.innerHTML=''; return; }
+  if(!statsHasModeSwitch()){ bar.innerHTML=''; return; }
+  const cardioMode = state.statsMode==='cardio';
+  bar.innerHTML = `<div class="seg-group" id="stats-mode-group" role="group" aria-label="Séances ou séances cardio">${[['muscu','Séances',iconSvg('DUMBBELL')],['cardio','Séances cardio',iconSvg('HEART')]].map(([v,l,ic])=>`<button type="button" class="seg-btn ico${(v==='cardio')===cardioMode?' active':''}" data-sm="${v}" aria-pressed="${(v==='cardio')===cardioMode}" aria-label="${l}" title="${l}">${ic}</button>`).join('')}</div>`;
+  bar.querySelectorAll('[data-sm]').forEach(b=> b.addEventListener('click', ()=>{
+    const m = b.dataset.sm; if(m===state.statsMode) return;
+    state.statsMode = m;
     if(state.currentView==='compare'){ renderSectionTabs(); renderCompareView(); return; }
-    state.statsTab = 'summary';
-    switchView(state.statsMode==='cardio' ? 'cardiostats' : 'dashboard');
-  });
+    switchView(m==='cardio' ? 'cardiostats' : 'dashboard');
+  }));
 }
 /* Indicateurs de défilement de la barre d'onglets : fondus sur les bords cachés + fine ligne avec curseur (visibles seulement en cas de débordement). */
 function updateTabsScroll(){
@@ -1983,8 +2060,6 @@ function switchView(id){
   state.currentView = id;
   if(id==='cardiostats') state.statsMode = 'cardio';
   else if(id==='dashboard' || id==='records') state.statsMode = 'muscu';
-  if(isCardioView(id)) state.sessionsMode = 'cardio';
-  else if(id==='sessions' || id==='calendar') state.sessionsMode = 'muscu';
   sectionLastView[sectionOfView(id).id] = id;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+id).classList.add('active');
@@ -1995,10 +2070,8 @@ function switchView(id){
   if(id==='dashboard') renderDashboard();
   if(id==='compare') renderCompareView();
   if(id==='records') renderRecordsView();
-  if(id==='calendar') renderCalendarView('sessions');
-  if(id==='cardiocal') renderCalendarView('cardio');
+  if(id==='calendar') renderCalendarView();
   if(id==='sessions') renderSessionsView();
-  if(id==='cardio') renderCardioView();
   if(id==='cardiostats') renderCardioStatsView();
   if(id==='exercises') renderExercisesView();
   if(id==='import') renderImportView();
@@ -2852,25 +2925,24 @@ function currentStreakDays(){
   return streak;
 }
 /* ============================= ACCUEIL ============================= */
-/* Carte « Cardio » de l'accueil : semaine en cours (lundi → dimanche) + dernière session. Masquée tant qu'aucune session cardio n'existe. */
-function cardioHomeHtml(item){
-  if(!state.cardio.length) return '';
-  const monday = isoFromDate(mondayOf(todayISO()));
-  const week = state.cardio.filter(c=> c.date >= monday);
-  const km = week.reduce((t,c)=>t+c.distanceKm,0), min = week.reduce((t,c)=>t+c.durationMin,0);
-  const last = state.cardio.slice().sort((a,b)=> b.date.localeCompare(a.date) || b.id.localeCompare(a.id))[0];
-  return `<div class="card" style="margin-top:16px;">
-    <div class="card-head"><div class="section-title" style="margin-bottom:0;">Cardio</div><button type="button" class="btn ghost" style="padding:4px 10px;font-size:11.5px;" data-home-cardio-all>Voir tout</button></div>
+/* Bloc « Cardio » de l'accueil : widgets calculés sur la période du filtre du haut (getActiveRange), puis les 5 dernières séances cardio (indépendantes de la période). */
+function cardioHomeHtml(item, range){
+  const head = `<div class="card-head"><div class="section-title" style="margin-bottom:0;">Séances cardio</div>${state.cardio.length?'<button type="button" class="btn ghost" style="padding:4px 10px;font-size:11.5px;min-height:44px;" data-home-cardio-all>Voir tout</button>':''}</div>`;
+  if(!state.cardio.length) return `<div class="card home-block home-block-cardio">${head}${emptyState('HEART','Aucune séance cardio pour l\'instant','Ajoute ta première séance cardio depuis « Nouvelle séance ».')}<div style="text-align:center;padding-bottom:6px;"><button type="button" class="btn primary" data-home-cardio-new style="min-height:44px;">+ Nouvelle séance</button></div></div>`;
+  const inR = state.cardio.filter(c=> (!range.from || c.date>=range.from) && (!range.to || c.date<=range.to));
+  const km = inR.reduce((t,c)=>t+c.distanceKm,0), min = inR.reduce((t,c)=>t+c.durationMin,0);
+  const recent = state.cardio.slice().sort((a,b)=> b.date.localeCompare(a.date) || (b.time||'').localeCompare(a.time||'') || b.id.localeCompare(a.id)).slice(0,5);
+  return `<div class="card home-block home-block-cardio">
+    ${head}
     <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:12px 0;">
-      ${item('Cette semaine', week.length, week.length>1?'sessions':'session')}
-      ${item('Distance', cardioFmtNum(km,1)+'<span style="font-size:13px;color:var(--muted);"> km</span>', 'cette semaine')}
-      ${item('Temps', cardioFormatDuration(Math.round(min)), 'cette semaine')}
+      ${item('Séances cardio', inR.length, 'sur cette période')}
+      ${item('Distance', cardioFmtNum(km,1)+'<span style="font-size:13px;color:var(--muted);"> km</span>', 'sur cette période')}
+      ${item('Temps', cardioFormatDuration(Math.round(min)), 'sur cette période')}
     </div>
-    <div class="clickable" data-home-cardio-last="${last.id}" role="button" tabindex="0" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 0 2px;border-top:1px solid var(--border);">
-      <span class="muted" style="font-size:12px;">Dernière session</span>
-      <span class="mono">${fmtDateShort(last.date)}</span>${cardioBadge(last)}
-      <span class="mono" style="color:var(--muted);">${last.distanceKm.toFixed(2).replace('.',',')} km · ${cardioFormatDuration(last.durationMin)} · ${cardioFormatSpeed(last)}</span>
-    </div>
+    <div class="section-title" style="margin-top:6px;">Séances cardio récentes</div>
+    <table class="tbl-cards"><thead><tr><th>Date</th><th>Type</th><th>Distance</th><th>Durée</th></tr></thead><tbody>
+    ${recent.map(c=>`<tr class="clickable" data-home-cardio-row="${c.id}"><td class="mono" data-label="Date">${fmtDateShort(c.date)}</td><td data-label="Type">${cardioBadge(c)}</td><td class="mono" data-label="Distance">${c.distanceKm.toFixed(2).replace('.',',')} km</td><td class="mono" data-label="Durée">${cardioFormatDuration(c.durationMin)}</td></tr>`).join('')}
+    </tbody></table>
   </div>`;
 }
 function renderHomeView(keepPeriodOpen){
@@ -2899,17 +2971,19 @@ function renderHomeView(keepPeriodOpen){
       <button type="button" class="btn ghost home-resume-sum" data-resume-summary="${pending.id}">Résumé</button>
     </div>` : ''}
     <div class="filter-bar" style="margin-top:14px;">
-      ${filterChipHtml('home-period-panel','Période','home-period-label',periodLabel('dash'),periodPanelHtml('home'))}
+      <div class="period-bar" id="home-period-panel" role="group" aria-label="Période">${periodPanelHtml('home')}</div>
     </div>
-    <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+    ${toClassify>0 ? `<button type="button" class="home-alert" id="home-classify">${toClassify} exercice${toClassify>1?'s':''} à classer <span aria-hidden="true">→</span></button>` : ''}
+    <div class="home-blocks">
+    <div class="card home-block home-block-sessions">
+    <div class="section-title">Séances</div>
+    <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:0 0 14px;">
       ${item('Séances', kpi.count, 'sur cette période')}
       ${item('Volume', Math.round(kpi.volume).toLocaleString('fr-FR')+kg, 'sur cette période')}
       ${item('Série en cours', currentStreakDays()+'<span style="font-size:12px;color:var(--muted);"> j</span>', 'jours consécutifs')}
       ${item('Nouveaux PR', newPr, 'exercice(s) avec un record')}
     </div>
-    ${toClassify>0 ? `<button type="button" class="home-alert" id="home-classify">${toClassify} exercice${toClassify>1?'s':''} à classer <span aria-hidden="true">→</span></button>` : ''}
-    <div class="card" style="margin-top:16px;">
-      <div class="section-title">Séances récentes</div>
+    <div class="section-title" style="margin-top:6px;">Séances récentes</div>
       ${recent.length===0 ? emptyState('CAL','Aucune séance pour l\'instant','Utilise « Nouvelle séance » pour saisir ta première séance (importer : menu Données).') : `
       <table class="tbl-cards"><thead><tr><th>Date</th><th>Séance</th><th>Exercices</th><th>Volume</th></tr></thead>
       <tbody>
@@ -2921,12 +2995,15 @@ function renderHomeView(keepPeriodOpen){
           <td class="mono" data-label="Volume">${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td>
         </tr>`).join('')}
       </tbody></table>`}
-    </div>${cardioHomeHtml(item)}`;
+    </div>
+    ${cardioHomeHtml(item, range)}
+    </div>`;
   const homeCardioAll = el.querySelector('[data-home-cardio-all]');
-  if(homeCardioAll) homeCardioAll.addEventListener('click', ()=> switchView('cardio'));
-  const homeCardioLast = el.querySelector('[data-home-cardio-last]');
-  if(homeCardioLast) homeCardioLast.addEventListener('click', ()=> openCardioSummaryModal(homeCardioLast.dataset.homeCardioLast));
-  document.getElementById('home-new-session').addEventListener('click', ()=> createSession());
+  if(homeCardioAll) homeCardioAll.addEventListener('click', ()=>{ state.sessionsShow = 'cardio'; switchView('sessions'); });
+  el.querySelectorAll('[data-home-cardio-row]').forEach(n=> n.addEventListener('click', ()=> openCardioSummaryModal(n.dataset.homeCardioRow)));
+  const homeCardioNew = el.querySelector('[data-home-cardio-new]');
+  if(homeCardioNew) homeCardioNew.addEventListener('click', ()=> openNewSession());
+  document.getElementById('home-new-session').addEventListener('click', ()=> openNewSession());
   bindFilterChips(el);
   el.querySelectorAll('[data-session]').forEach(n=>{
     n.addEventListener('click', ()=> openSessionModal(n.dataset.session));
@@ -2941,11 +3018,7 @@ function renderHomeView(keepPeriodOpen){
   const resumeSum = el.querySelector('[data-resume-summary]');
   if(resumeSum) resumeSum.addEventListener('click', e=>{ e.stopPropagation(); openSessionModal(resumeSum.dataset.resumeSummary); });
   bindPeriodPanel('home', 'dash', ()=> renderHomeView(true));
-  // Après un rafraîchissement dû aux flèches / dates, le panneau reste ouvert.
-  if(keepPeriodOpen){
-    const pn = document.getElementById('home-period-panel'), ch = el.querySelector('[data-filter-panel="home-period-panel"]');
-    if(pn) pn.classList.add('open'); if(ch) ch.setAttribute('aria-expanded','true');
-  }
+  // Le filtre période de l'Accueil est toujours déplié (plus de puce ni de panneau) : rien à rouvrir après un rafraîchissement.
   const cls = document.getElementById('home-classify');
   if(cls) cls.addEventListener('click', ()=>{ exFilterUnclassified = true; switchView('exercises'); });
 }
@@ -2958,8 +3031,8 @@ function renderDashboard(){
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <h1 class="page-title">Statistiques</h1>
-        <div class="page-sub">Vue d'ensemble de ta progression</div>
+        <h1 class="page-title" id="stats-head-title">${statsHeadTexts(state.statsTab,false).t}</h1>
+        <div class="page-sub" id="stats-head-sub">${statsHeadTexts(state.statsTab,false).sub}</div>
       </div>
     </div>
 
@@ -3234,8 +3307,17 @@ function drawStatsPane(tab, range){
   else if(tab==='muscles'){ renderMuscleChart(range); renderMuscleHeatmap(range); renderSessionTypeChart(range); }
   else if(tab==='heart'){ renderHRTrendChart(range); }
 }
+/* Titre + sous-titre de l'écran Statistiques selon l'onglet (et le mode cardio pour Résumé / Cœur). */
+function statsHeadTexts(tab, cardio){
+  const T={summary:['Résumé','Les chiffres clés de la période'],progress:['Progression','Évolution par exercice'],muscles:['Muscles','Répartition du travail'],heart:['Cœur','Fréquence cardiaque par séance']};
+  let [t,sub]=T[tab]||T.summary;
+  if(cardio){ t+=' cardio'; if(tab==='heart') sub='Fréquence cardiaque par séance cardio'; }
+  return {t,sub};
+}
 /* Affiche l'onglet courant de Statistiques sans reconstruire l'écran. */
 function showStatsTab(){
+  const h=statsHeadTexts(state.statsTab,false), ht=document.getElementById('stats-head-title'), hs=document.getElementById('stats-head-sub');
+  if(ht) ht.textContent=h.t; if(hs) hs.textContent=h.sub;
   document.querySelectorAll('#view-dashboard .stats-pane').forEach(p=> p.classList.toggle('active', p.dataset.pane===state.statsTab));
   renderSectionTabs();
   drawStatsPane(state.statsTab);
@@ -3961,7 +4043,7 @@ let recTableGroupsMap = {};
 function renderRecordsView(){
   const el = document.getElementById('view-records');
   el.innerHTML = `
-    <div class="page-head"><div><h1 class="page-title">Records</h1><div class="page-sub">Le record personnel et la dernière performance de chaque exercice, réunis dans un seul tableau.</div></div></div>
+    <div class="page-head"><div><h1 class="page-title">Records</h1><div class="page-sub">Vos meilleures performances</div></div></div>
     <div class="card">
       <div class="table-toolbar">
         <input type="text" id="rec-search" placeholder="Rechercher un exercice…" value="${escapeHtml(state.recSearch)}">
@@ -4097,17 +4179,14 @@ function renderRecordsTable(){
 }
 
 /* ============================= CALENDAR VIEW ============================= */
-function renderCalendarView(mode){
-  /* mode = vue par défaut de l'onglet d'où l'on vient : 'sessions' (Séances > Calendrier) ou 'cardio' (Cardio > Calendrier).
-     Le logo en haut à droite bascule entre cette vue et la vue globale ; le choix n'est JAMAIS mémorisé (réinitialisé à chaque ouverture). */
-  mode = mode || 'sessions'; state.calDefault = mode; state.calView = mode;
-  const other = document.getElementById(mode==='cardio' ? 'view-calendar' : 'view-cardiocal'); if(other) other.innerHTML = ''; // évite les ids en double
-  const el = document.getElementById(mode==='cardio' ? 'view-cardiocal' : 'view-calendar');
+function renderCalendarView(){
+  /* Le calendrier affiche séances et séances cardio ; le choix Tout / Séances / Cardio (state.sessionsShow) est partagé avec la liste et jamais mémorisé au rechargement. */
+  const el = document.getElementById('view-calendar');
   el.innerHTML = `
     <div class="page-head cal-head">
       <div class="cal-head-title">
         <h1 class="page-title">Calendrier</h1>
-        <div class="page-sub">Clique sur un jour pour voir le détail</div>
+        <div class="page-sub">Vos séances jour par jour</div>
       </div>
       <div class="cal-head-controls">
         <button class="btn ghost" id="cal-today">Aujourd'hui</button>
@@ -4116,26 +4195,12 @@ function renderCalendarView(mode){
           <div class="mono cal-label" id="cal-label"></div>
           <button class="btn ghost icon-btn-square" id="cal-next" aria-label="Mois suivant" title="Mois suivant">${iconSvg('M9 18l6-6-6-6')}</button>
         </div>
-        <button type="button" class="cal-mode-btn" id="cal-mode-btn"></button>
+        ${sessionsShowSegHtml('cal-show-group')}
       </div>
     </div>
     <div class="card" id="cal-grid-wrap"></div>
   `;
-  const modeBtn = document.getElementById('cal-mode-btn');
-  const names = {sessions:'Muscu', cardio:'Cardio', both:'Vue globale'};
-  const syncMode = ()=>{
-    const v = state.calView;
-    // Logo « calques » propre à ce bouton (distinct des logos haltère/cœur de la bascule de mode) ; allumé = vue globale affichée
-    modeBtn.innerHTML = iconSvg('M12 3l9 5-9 5-9-5 9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5');
-    modeBtn.setAttribute('aria-pressed', v==='both' ? 'true' : 'false');
-    const label = v==='both' ? `${names.both} — revenir à la vue ${names[state.calDefault].toLowerCase()}` : `Vue ${names[v].toLowerCase()} — afficher aussi l'autre domaine (vue globale)`;
-    modeBtn.title = label; modeBtn.setAttribute('aria-label', label);
-  };
-  modeBtn.addEventListener('click', ()=>{
-    state.calView = state.calView==='both' ? state.calDefault : 'both';
-    syncMode(); drawCalendarGrid();
-  });
-  syncMode();
+  bindSessionsShowSeg('cal-show-group', drawCalendarGrid);
   document.getElementById('cal-today').addEventListener('click', ()=>{ const n = new Date(); state.calMonth = n.getMonth(); state.calYear = n.getFullYear(); drawCalendarGrid(); });
   document.getElementById('cal-prev').addEventListener('click', ()=>{ shiftMonth(-1); });
   document.getElementById('cal-next').addEventListener('click', ()=>{ shiftMonth(1); });
@@ -4154,15 +4219,13 @@ function drawCalendarGrid(){
   const daysInMonth = new Date(state.calYear, state.calMonth+1, 0).getDate();
   const todayIso = todayISO();
 
-  const view = state.calView, dflt = state.calDefault || 'sessions';
   const sessionsByDate = {}, cardioByDate = {};
-  if(view!=='cardio') state.sessions.forEach(s=>{ (sessionsByDate[s.date] = sessionsByDate[s.date]||[]).push(s); });
-  if(view!=='sessions') state.cardio.forEach(c=>{ (cardioByDate[c.date] = cardioByDate[c.date]||[]).push(c); });
-  /* Règle de couleurs : le domaine du menu où l'on est garde le détail (types de séance / 4 combinaisons cardio),
-     l'autre domaine apparaît en une couleur unique dans la vue globale. */
+  if(showsSessions()) state.sessions.forEach(s=>{ (sessionsByDate[s.date] = sessionsByDate[s.date]||[]).push(s); });
+  if(showsCardio()) state.cardio.forEach(c=>{ (cardioByDate[c.date] = cardioByDate[c.date]||[]).push(c); });
+  /* Couleurs : chaque domaine garde la sienne (couleur du type de séance ; couleur type + activité pour le cardio). */
   const toItem = (hex, label, title)=>{ const [r,g,b] = hexToRgb(hex); return {color:hex, label, title:title||'', bg:`rgba(${r},${g},${b},0.14)`, bgStrong:`rgba(${r},${g},${b},0.24)`, border:`rgba(${r},${g},${b},0.4)`}; };
-  const muscuItem = s=>{ const t = sessionTypeInfo(s.name); return (view==='both' && dflt==='cardio') ? toItem(OTHER_DOMAIN_COLOR, t.label) : {...t, title:''}; };
-  const cardioItem = c=> toItem((view==='both' && dflt==='sessions') ? OTHER_DOMAIN_COLOR : cardioComboColor(c), CARDIO_ACTIVITIES[c.activity], CARDIO_KINDS[c.kind]);
+  const muscuItem = s=>({...sessionTypeInfo(s.name), title:''});
+  const cardioItem = c=> toItem(cardioComboColor(c), CARDIO_ACTIVITIES[c.activity], CARDIO_KINDS[c.kind]);
 
   let cells = '';
   DAYS_FR.forEach(d=> cells += `<div class="cal-dow">${d}</div>`);
@@ -4177,7 +4240,7 @@ function drawCalendarGrid(){
     let cellVars = '';
     /* Jour partagé (vue globale, muscu ET cardio) : case entièrement bicolore, diagonale nette ; moitié haute-gauche = muscu, basse-droite = cardio
        (1re séance / 1re session de chaque domaine). Jamais plus de deux parts. */
-    const split = view==='both' && daySessions.length>0 && dayCardio.length>0;
+    const split = daySessions.length>0 && dayCardio.length>0;
     if(split){
       const m = items[0], c = items[daySessions.length];
       cellVars = `--sp-a:color-mix(in srgb,${m.color} 60%,var(--surface-2));--sp-b:color-mix(in srgb,${c.color} 60%,var(--surface-2));--sb-border:${m.border};--sb-color:${m.color};`;
@@ -4192,15 +4255,16 @@ function drawCalendarGrid(){
   }
   const muscuTypes = ['push','pull','upper','legs','other'].map(k=>[SESSION_TYPES[k].color, k==='other'?'Autres':SESSION_TYPES[k].label]);
   const combos = [['treadmill','walk'],['treadmill','run'],['outdoor','walk'],['outdoor','run']].map(([k,a])=>[CARDIO_COMBO_COLORS[k+'_'+a], `${CARDIO_KINDS[k]} · ${CARDIO_ACTIVITIES[a]}`]);
-  let legendItems;
-  if(view==='sessions') legendItems = muscuTypes;
-  else if(view==='cardio') legendItems = combos;
-  else if(dflt==='sessions') legendItems = muscuTypes.concat([[OTHER_DOMAIN_COLOR,'Cardio']]);
-  else legendItems = combos.concat([[OTHER_DOMAIN_COLOR,'Muscu']]);
+  let legendItems = [];
+  if(showsSessions()) legendItems = legendItems.concat(muscuTypes);
+  if(showsCardio()) legendItems = legendItems.concat(combos);
   const legend = `<div class="cal-legend">${legendItems.map(([c,l])=>`<span class="cal-legend-item"><span class="cal-legend-dot" style="background:${c};"></span>${escapeHtml(l)}</span>`).join('')}</div>`;
   document.getElementById('cal-grid-wrap').innerHTML = `<div class="cal-grid">${cells}</div>${legend}`;
   document.querySelectorAll('.cal-cell[data-day]').forEach(c=>{
-    c.addEventListener('click', ()=> openDayModal(c.dataset.day, sessionsByDate[c.dataset.day]||[], cardioByDate[c.dataset.day]||[]));
+    c.addEventListener('click', ()=>{
+      const ds = sessionsByDate[c.dataset.day]||[], dc = cardioByDate[c.dataset.day]||[];
+      if(!ds.length && !dc.length) openNewSession(c.dataset.day); else openDayModal(c.dataset.day, ds, dc);
+    });
   });
 
   if(!document.getElementById('cal-style')){
@@ -4285,7 +4349,7 @@ function downloadCardio(id){
 }
 function copyCardioTxt(id){
   const c = state.cardio.find(x=>x.id===id); if(!c) return;
-  copyTextToClipboard(buildCardioTxt(c), 'Session copiée dans le presse-papier');
+  copyTextToClipboard(buildCardioTxt(c), 'Séance cardio copiée dans le presse-papier');
 }
 function openDayModal(iso, sessions, cardioList){
   const blocks = (sessions||[]).map(s=>sessionDetailHtml(s)).concat((cardioList||[]).map(c=>cardioSummaryHtml(c)));
@@ -4343,6 +4407,7 @@ async function deleteSession(sid){
   closeModal();
   showToast('Séance supprimée');
   renderNav();
+  if(state.currentView==='sessions') drawSessionsList();
   if(state.currentView==='calendar' || state.currentView==='cardiocal') drawCalendarGrid();
   if(state.currentView==='dashboard') renderDashboard(); if(state.currentView==='home') renderHomeView();
 }
@@ -4350,7 +4415,7 @@ async function deleteSession(sid){
 /* ============================= CARDIO VIEW ============================= */
 state.cardioFilter = {kind:'all', activity:'all'}; // filtres de la liste cardio (non mémorisés)
 function cardioBadge(c){
-  return `<span class="badge cardio-${c.kind}">${CARDIO_KINDS[c.kind]}</span> <span class="status-pill">${CARDIO_ACTIVITIES[c.activity]}</span>`;
+  return `<span class="badge cardio-${c.kind}">${CARDIO_KINDS[c.kind]}</span> <span class="status-pill" style="color:${cardioComboColor(c)};border-color:${cardioComboColor(c)}66;background:${cardioComboColor(c)}1f;">${CARDIO_ACTIVITIES[c.activity]}</span>`;
 }
 function filteredCardio(noPeriod){
   const f = state.cardioFilter;
@@ -4364,6 +4429,21 @@ function cardioSegGroup(key, opts){
 }
 /* ----- Cardio : formulaire de création / édition ----- */
 let cardioDraft = null;
+/* Créateur unique : date (et heure) conservées quand on bascule entre l'éditeur de séance et le formulaire cardio. */
+let newCarry = null;
+function openNewSession(dateISO){
+  newCarry = {date: (typeof dateISO==='string' && dateISO) ? dateISO : todayISO(), time:''};
+  openCardioOrSessionStart();
+}
+/* Première ouverture : éditeur de séance (type à choisir) ; ou formulaire cardio si le choix partagé est « Cardio ». */
+function openCardioOrSessionStart(){
+  if(state.sessionsShow==='cardio' && (state.currentView==='sessions' || state.currentView==='calendar')) openCardioModal();
+  else createSession(newCarry.date);
+}
+function newTypePickerHtml(){
+  const chips = ['push','pull','legs','upper','other'].map(t=>`<button type="button" class="session-type-chip" data-new-type="${t}" style="--chip-color:${SESSION_TYPES[t].color};">${t==='other'?'Autres':SESSION_TYPES[t].label}</button>`).join('');
+  return `<div style="margin-bottom:12px;"><label class="field-label">Type de séance</label><div class="session-type-picker">${chips}<button type="button" class="session-type-chip active" data-new-type="cardio" style="--chip-color:var(--accent);">Cardio</button></div></div>`;
+}
 function cardioDraftDuration(){ return (Number(cardioDraft.h)||0)*60 + (Number(cardioDraft.m)||0); }
 function openCardioModal(id){
   const existing = id ? state.cardio.find(c=>c.id===id) : null;
@@ -4373,7 +4453,8 @@ function openCardioModal(id){
     id: existing.id, date: existing.date, time: existing.time||'', kind: existing.kind, activity: existing.activity,
     h: Math.floor(dur/60) || '', m: Math.round(dur%60) || '', distanceKm: existing.distanceKm, place: existing.place||'',
     avgHR: existing.avgHR ?? '', maxHR: existing.maxHR ?? '', kcal: existing.kcal ?? '', note: existing.note||''
-  } : { id:null, date: todayISO(), time:'', kind:'treadmill', activity:'walk', h:'', m:'', distanceKm:'', place:'', avgHR:'', maxHR:'', kcal:'', note:'' };
+  } : { id:null, date: (newCarry&&newCarry.date)||todayISO(), time:(newCarry&&newCarry.time)||'', kind:'treadmill', activity:'walk', h:'', m:'', distanceKm:'', place:'', avgHR:'', maxHR:'', kcal:'', note:'' };
+  newCarry = null;
   renderCardioModal(!!existing);
 }
 function renderCardioModal(isEdit){
@@ -4381,7 +4462,8 @@ function renderCardioModal(isEdit){
   const seg = (key, opts)=> `<div class="seg-group">${opts.map(o=>`<button type="button" class="seg-btn${d[key]===o[0]?' active':''}" data-cd-seg="${key}" data-val="${o[0]}" style="flex:1;">${o[1]}</button>`).join('')}</div>`;
   const sf = (key, unit, mode)=> `<div class="set-field"><input type="text" inputmode="${mode||'numeric'}" data-cd="${key}" value="${d[key]===''||d[key]==null?'':escapeHtml(String(d[key]))}" placeholder="0" autocomplete="off"><span class="set-field-label">${unit}</span></div>`;
   openModal(`
-    <div class="modal-head"><h3 style="font-size:22px;">${isEdit?'Modifier la session cardio':'Nouvelle session cardio'}</h3><span class="modal-close" onclick="closeModal()">&times;</span></div>
+    <div class="modal-head"><h3 style="font-size:22px;">${isEdit?'Modifier la séance cardio':'Nouvelle séance'}</h3><span class="modal-close" onclick="closeModal()">&times;</span></div>
+    ${isEdit?'':newTypePickerHtml()}
     <div style="margin-bottom:12px;"><label class="field-label">Date</label><input type="date" data-cd="date" value="${escapeHtml(d.date)}" style="width:100%;"></div>
     <label class="field-label">Type</label><div style="margin-bottom:12px;">${seg('kind',[['treadmill','Tapis'],['outdoor','Extérieur']])}</div>
     <label class="field-label">Activité</label><div style="margin-bottom:12px;">${seg('activity',[['walk','Marche'],['run','Course']])}</div>
@@ -4410,6 +4492,10 @@ function renderCardioModal(isEdit){
     root.querySelectorAll(`[data-cd-seg="${b.dataset.cdSeg}"]`).forEach(x=> x.classList.toggle('active', x===b));
     if(b.dataset.cdSeg==='kind') document.getElementById('cardio-place-wrap').style.display = d.kind==='outdoor' ? '' : 'none';
   }));
+  root.querySelectorAll('[data-new-type]').forEach(b=> b.addEventListener('click', async ()=>{
+    const t = b.dataset.newType; if(t==='cardio') return;
+    await createSession(d.date, t==='other' ? '' : SESSION_TYPES[t].label);
+  }));
   document.getElementById('cardio-save').addEventListener('click', saveCardioDraft);
   const del = document.getElementById('cardio-del');
   if(del) del.addEventListener('click', ()=> deleteCardioSession(d.id));
@@ -4431,18 +4517,18 @@ async function saveCardioDraft(){
   if(i>=0) state.cardio[i] = rec; else state.cardio.push(rec);
   await saveCardio();
   await closeModal();
-  showToast(i>=0 ? 'Session cardio modifiée' : 'Session cardio enregistrée', 'good');
+  showToast(i>=0 ? 'Séance cardio modifiée' : 'Séance cardio enregistrée', 'good');
   refreshCardioViews();
 }
 async function deleteCardioSession(id){
   const c = state.cardio.find(x=>x.id===id);
   if(!c) return;
-  if(!confirm('Supprimer cette session cardio ?')) return;
+  if(!confirm('Supprimer cette séance cardio ?')) return;
   state.cardio = state.cardio.filter(x=>x.id!==id);
   await saveCardio();
   await closeModal();
   refreshCardioViews();
-  showToast('Session cardio supprimée', null, {label:'Annuler', onClick: async ()=>{
+  showToast('Séance cardio supprimée', null, {label:'Annuler', onClick: async ()=>{
     state.cardio.push(c); await saveCardio();
     refreshCardioViews();
   }});
@@ -4464,10 +4550,11 @@ function bindCardioFilters(el){
   if(el.querySelector('#cst-period-group')) bindPeriodPanel('cst', 'dash', ()=> renderCardioStatsView(['week','month','custom'].includes(state.dashPeriod)));
 }
 function refreshCardioViews(){
+  renderNav();  // met à jour le compteur « séances cardio » du pied du bandeau
   if(state.currentView==='home') renderHomeView();
-  if(state.currentView==='calendar' || state.currentView==='cardiocal') drawCalendarGrid();
-  if(state.currentView==='cardio') renderCardioView();
-  else if(state.currentView==='cardiostats') renderCardioStatsView();
+  if(state.currentView==='calendar') drawCalendarGrid();
+  if(state.currentView==='sessions') drawSessionsList();
+  if(state.currentView==='cardiostats') renderCardioStatsView();
 }
 /* ----- Cardio : onglet Stats ----- */
 function cardioFmtNum(v, d){ return v.toLocaleString('fr-FR',{minimumFractionDigits:d||0, maximumFractionDigits:d||0}); }
@@ -4523,10 +4610,10 @@ function cardioComboLabel(key){ const [k,a] = key.split('_'); return CARDIO_KIND
 function syncCardioWeekdayToggle(){
   const byType = state.cardioWeekdayMode==='type';
   const t = document.getElementById('cardio-weekday-title');
-  if(t) t.textContent = byType ? 'Types de session par jour' : 'Sessions par jour';
+  if(t) t.textContent = byType ? 'Types de séance par jour' : 'Séances par jour';
   const b = document.getElementById('cardio-weekday-mode-btn');
   if(!b) return;
-  const label = byType ? 'Voir le total par jour' : 'Voir les types de session par jour';
+  const label = byType ? 'Voir le total par jour' : 'Voir les types de séance par jour';
   b.innerHTML = byType ? iconSvg('M4 19V10M10 19V5M16 19V13M22 19H2') : iconSvg('M4 20h6v-5H4zM4 15h6v-5H4zM14 20h6v-9h-6zM14 11h6V7h-6z');
   b.title = label; b.setAttribute('aria-label', label);
 }
@@ -4538,7 +4625,7 @@ function renderCardioWeekdayChart(list){
   if(state.cardioWeekdayMode==='type'){
     const {keys, rows} = computeCardioWeekdayTypeBreakdown(list);
     const active = keys.filter(k=>rows.some(r=>r[k]>0));
-    if(!active.length){ wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune session sur ces filtres.'); return; }
+    if(!active.length){ wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance cardio sur ces filtres.'); return; }
     if(!document.getElementById('chart-cardio-weekday')) wrapEl.innerHTML = '<canvas id="chart-cardio-weekday"></canvas>';
     renderChartSafe('chart-cardio-weekday', {
       type:'bar',
@@ -4552,9 +4639,9 @@ function renderCardioWeekdayChart(list){
   }
   const counts = [0,0,0,0,0,0,0];
   list.forEach(c=>{ counts[(new Date(c.date+'T00:00:00').getDay()+6)%7]++; });
-  if(counts.every(v=>v===0)){ wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune session sur ces filtres.'); return; }
+  if(counts.every(v=>v===0)){ wrapEl.innerHTML = emptyState('CAL','Rien à afficher','Aucune séance cardio sur ces filtres.'); return; }
   if(!document.getElementById('chart-cardio-weekday')) wrapEl.innerHTML = '<canvas id="chart-cardio-weekday"></canvas>';
-  renderChartSafe('chart-cardio-weekday', { type:'bar', data:{ labels:DAYS_FR, datasets:[{ label:'Sessions', data:counts, backgroundColor:COLORS.steel, borderRadius:4, maxBarThickness:34 }] },
+  renderChartSafe('chart-cardio-weekday', { type:'bar', data:{ labels:DAYS_FR, datasets:[{ label:'Séances', data:counts, backgroundColor:COLORS.steel, borderRadius:4, maxBarThickness:34 }] },
     options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:ctx=> `${ctx.parsed.y} session${ctx.parsed.y>1?'s':''}` } } }, scales:{ x:chartGridOpts(), y:Object.assign(chartGridOpts(), yTicks) } } });
 }
 function cardioKpiGroup(label, items){
@@ -4573,7 +4660,7 @@ function renderCardioHRChart(asc){
   const keys = [];
   Object.keys(CARDIO_KINDS).forEach(k=> Object.keys(CARDIO_ACTIVITIES).forEach(a=> keys.push([CARDIO_COMBO_COLORS[k+'_'+a], CARDIO_KINDS[k]+' · '+CARDIO_ACTIVITIES[a]])));
   renderHRChartGeneric({prefix:'chr', series, open:openCardioSummaryModal, legendKeyHtml:hrLegendKeyHtml(keys),
-    emptyMsg:'Aucune donnée de fréquence cardiaque. Renseigne la FC moyenne ou max d\'une session cardio pour la voir ici.', footer:'Cliquer pour ouvrir la session'});
+    emptyMsg:'Aucune donnée de fréquence cardiaque. Renseigne la FC moyenne ou max d\'une séance cardio pour la voir ici.', footer:'Cliquer pour ouvrir la séance cardio'});
 }
 function renderCardioStatsView(keepPeriodOpen){
   const el = document.getElementById('view-cardiostats');
@@ -4587,8 +4674,8 @@ function renderCardioStatsView(keepPeriodOpen){
   const where = c => `${fmtDateShort(c.date)} · ${CARDIO_KINDS[c.kind]} ${CARDIO_ACTIVITIES[c.activity].toLowerCase()}`;
   const sub = (label, c)=> c ? `${label}<br>${where(c)}` : label;
   let body;
-  if(!state.cardio.length) body = `<div class="card">${emptyState('HEART','Aucune session cardio','Les statistiques apparaîtront dès ta première session.')}</div>`;
-  else if(!list.length) body = `<div class="card">${emptyState('HEART','Aucune session avec ces filtres','Change la période, le type ou l\'activité.')}</div>`;
+  if(!state.cardio.length) body = `<div class="card">${emptyState('HEART','Aucune séance cardio','Les statistiques apparaîtront dès ta première session.')}</div>`;
+  else if(!list.length) body = `<div class="card">${emptyState('HEART','Aucune séance cardio avec ces filtres','Change la période, le type ou l\'activité.')}</div>`;
   else if(tab==='summary'){
     const totKm = list.reduce((t,c)=>t+c.distanceKm,0), totMin = list.reduce((t,c)=>t+c.durationMin,0);
     const kcalTot = kcalList.reduce((t,c)=>t+c.kcal,0);
@@ -4602,26 +4689,26 @@ function renderCardioStatsView(keepPeriodOpen){
     const fSp = v=> cardioUnit(cardioFmtNum(v,1),'km/h');
     const fKc = v=> cardioUnit(Math.round(v).toLocaleString('fr-FR'),'kcal');
     body = `<div class="stat-grid">
-      ${cardioKpiGroup('Sessions', [
-        {val:String(list.length), sub:'Sessions sur ces filtres'},
+      ${cardioKpiGroup('Séances cardio', [
+        {val:String(list.length), sub:'Séances sur ces filtres'},
         {val: spw==null?none:cardioFmtNum(spw,1), sub:'Moyenne / semaine sur ces filtres'},
         {val:String(state.cardio.length), sub:'Total depuis le début'}
       ])}
       ${cardioKpiGroup('Distance', [
         {val:fKm(totKm), sub:'sur ces filtres'},
-        {val:fKm(totKm/list.length), sub:'Moyenne / session'},
+        {val:fKm(totKm/list.length), sub:'Moyenne / séance'},
         {val:fKm(dMax.distanceKm), sub:sub('Distance max',dMax), id:dMax.id},
         {val:fKm(dMin.distanceKm), sub:sub('Distance min',dMin), id:dMin.id}
       ])}
       ${cardioKpiGroup('Temps', [
         {val:cardioFormatDuration(Math.round(totMin)), sub:'sur ces filtres'},
-        {val:cardioFormatDuration(Math.round(totMin/list.length)), sub:'Moyenne / session'},
+        {val:cardioFormatDuration(Math.round(totMin/list.length)), sub:'Moyenne / séance'},
         {val:cardioFormatDuration(tMax.durationMin), sub:sub('Durée max',tMax), id:tMax.id},
         {val:cardioFormatDuration(tMin.durationMin), sub:sub('Durée min',tMin), id:tMin.id}
       ])}
       ${cardioKpiGroup('Calories', kcalList.length ? [
-        {val:fKc(kcalTot), sub:`sur ${kcalList.length} session(s) renseignée(s)`},
-        {val:fKc(kcalTot/kcalList.length), sub:'Moyenne / session'},
+        {val:fKc(kcalTot), sub:`sur ${kcalList.length} séance(s) renseignée(s)`},
+        {val:fKc(kcalTot/kcalList.length), sub:'Moyenne / séance'},
         {val:fKc(kMax.kcal), sub:sub('Calories max',kMax), id:kMax.id},
         {val:fKc(kMin.kcal), sub:sub('Calories min',kMin), id:kMin.id}
       ] : [{val:none, sub:'aucune calorie renseignée'}])}
@@ -4640,7 +4727,7 @@ function renderCardioStatsView(keepPeriodOpen){
       <div class="card"><div class="section-title">Durée dans le temps</div><div style="height:230px;"><canvas id="chart-cardio-time"></canvas></div></div>
       <div class="card"><div class="section-title">Calories dans le temps</div>${kcalList.length?'<div style="height:230px;"><canvas id="chart-cardio-kcal"></canvas></div>':emptyState('HEART','Rien à afficher','Aucune calorie renseignée sur ces filtres.')}</div>
     </div>
-    <div class="card" style="margin-top:16px;"><div class="section-title">Vitesse moyenne par session</div><div style="height:230px;"><canvas id="chart-cardio-speed"></canvas></div></div>`;
+    <div class="card" style="margin-top:16px;"><div class="section-title">Vitesse moyenne par séance</div><div style="height:230px;"><canvas id="chart-cardio-speed"></canvas></div></div>`;
   } else {
     const avgHr = hrList.length ? hrList.reduce((t,c)=>t+c.avgHR,0)/hrList.length : null;
     const mxHr = hrMaxList.length ? Math.max(...hrMaxList.map(c=>c.maxHR)) : null;
@@ -4648,9 +4735,9 @@ function renderCardioStatsView(keepPeriodOpen){
     body = `<div class="card" style="margin-top:16px;" id="chr-card">
       <div class="card-head"><div class="section-title" style="margin-bottom:0;">Fréquence cardiaque</div></div>
       <div class="stat-group-row" style="margin:8px 0 16px;">
-        <div class="stat-group-item"><div class="value">${avgHr!=null?bpm(avgHr):none}</div><div class="sub">${hrList.length?`FC moy. sur ${hrList.length} session(s) renseignée(s)`:'aucune FC moyenne renseignée'}</div></div>
+        <div class="stat-group-item"><div class="value">${avgHr!=null?bpm(avgHr):none}</div><div class="sub">${hrList.length?`FC moy. sur ${hrList.length} séance(s) renseignée(s)`:'aucune FC moyenne renseignée'}</div></div>
         <div class="stat-group-divider"></div>
-        <div class="stat-group-item"><div class="value">${mxHr!=null?bpm(mxHr):none}</div><div class="sub">${hrMaxList.length?`FC max sur ${hrMaxList.length} session(s) renseignée(s)`:'aucune FC max renseignée'}</div></div>
+        <div class="stat-group-item"><div class="value">${mxHr!=null?bpm(mxHr):none}</div><div class="sub">${hrMaxList.length?`FC max sur ${hrMaxList.length} séance(s) renseignée(s)`:'aucune FC max renseignée'}</div></div>
       </div>
       <div id="chr-trend-legend" style="display:flex;flex-wrap:wrap;gap:13px;align-items:center;margin-bottom:12px;font-size:11.5px;color:var(--muted);"></div>
       <div style="height:200px;display:flex;" id="chr-trend-row"></div>
@@ -4658,7 +4745,7 @@ function renderCardioStatsView(keepPeriodOpen){
     </div>`;
   }
   el.innerHTML = `
-    <div class="page-head"><div><h1 class="page-title">Statistiques cardio</h1><div class="page-sub">Calculées sur les sessions correspondant aux filtres.</div></div></div>
+    <div class="page-head"><div><h1 class="page-title">${statsHeadTexts(tab,true).t}</h1><div class="page-sub">${statsHeadTexts(tab,true).sub}</div></div></div>
     ${state.cardio.length?cardioFilterBarHtml(true):''}${body}`;
   bindFilterChips(el);
   bindCardioFilters(el);
@@ -4695,43 +4782,128 @@ function renderCardioStatsView(keepPeriodOpen){
   }
 }
 
-function renderCardioView(){
-  const el = document.getElementById('view-cardio');
-  const list = filteredCardio(true);
-  const hr = c => (c.avgHR!=null || c.maxHR!=null) ? `${c.avgHR!=null?c.avgHR+'♥':'—'}${c.maxHR!=null?' / '+c.maxHR+'♥max':''}` : '—';
-  let body;
-  if(!state.cardio.length) body = emptyState('HEART','Aucune session cardio','Tes sessions cardio apparaîtront ici.');
-  else if(!list.length) body = emptyState('HEART','Aucune session avec ces filtres','Change la période, le type ou l\'activité.');
-  else body = `<table class="tbl-cards"><thead><tr><th>Date</th><th>Session</th><th>Durée</th><th>Distance</th><th>Vitesse</th><th>Allure</th><th>Fréq. cardiaque</th><th>Calories</th></tr></thead><tbody>${list.map(c=>`<tr class="clickable" data-edit-cardio="${c.id}"><td class="mono" data-label="Date">${fmtDateShort(c.date)}</td><td data-label="Session">${cardioBadge(c)}${c.place?' <span class="muted">'+escapeHtml(c.place)+'</span>':''}</td><td class="mono" data-label="Durée">${cardioFormatDuration(c.durationMin)}</td><td class="mono" data-label="Distance">${c.distanceKm.toFixed(2).replace('.',',')} km</td><td class="mono" data-label="Vitesse">${cardioFormatSpeed(c)}</td><td class="mono" data-label="Allure">${cardioFormatPace(c)}</td><td class="mono" data-label="Fréq. cardiaque">${hr(c)}</td><td class="mono" data-label="Calories">${c.kcal!=null?c.kcal+' kcal':'—'}</td></tr>`).join('')}</tbody></table>`;
-  el.innerHTML = `
-    <div class="page-head"><div><h1 class="page-title">Cardio</h1><div class="page-sub">Tes sessions de marche et de course, sur tapis ou en extérieur.</div></div><button class="btn primary" id="new-cardio-btn">+ Session cardio</button></div>
-    ${state.cardio.length?cardioFilterBarHtml(false):''}
-    <div class="card">${body}</div>`;
-  document.getElementById('new-cardio-btn').addEventListener('click', ()=> openCardioModal());
-  el.querySelectorAll('[data-edit-cardio]').forEach(r=> r.addEventListener('click', ()=> openCardioModal(r.dataset.editCardio)));
-  bindFilterChips(el);
-  bindCardioFilters(el);
-}
-
 /* ============================= SESSIONS VIEW / LIVE EDITOR ============================= */
+/* Choix Tout / Séances / Cardio partagé entre la liste et le calendrier (state.sessionsShow). */
+function showsSessions(){ return state.sessionsShow!=='cardio'; }
+function showsCardio(){ return state.sessionsShow!=='sessions'; }
+const SHOW_ALL_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>`;
+/* Choix Tout / Séances / Cardio en logos (grille, haltère, cœur) ; nom accessible via title/aria-label. */
+function sessionsShowSegHtml(id){
+  return `<div class="seg-group" id="${id}" role="group" aria-label="Afficher">${[['all','Tout',SHOW_ALL_ICON],['sessions','Séances',iconSvg('DUMBBELL')],['cardio','Séances cardio',iconSvg('HEART')]].map(([v,l,ic])=>`<button type="button" class="seg-btn ico${state.sessionsShow===v?' active':''}" data-show="${v}" aria-pressed="${state.sessionsShow===v}" aria-label="${l}" title="${l}">${ic}</button>`).join('')}</div>`;
+}
+function bindSessionsShowSeg(id, onChange){
+  const g = document.getElementById(id); if(!g) return;
+  g.querySelectorAll('[data-show]').forEach(b=> b.addEventListener('click', ()=>{
+    state.sessionsShow = b.dataset.show;
+    g.querySelectorAll('[data-show]').forEach(x=>{ const on = x.dataset.show===state.sessionsShow; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+    onChange();
+  }));
+}
+const LIST_TYPE_KEYS = ['push','pull','upper','legs','other'];
+/* Pastilles de détail actives, limitées aux domaines affichés (les pastilles d'un domaine masqué sont ignorées). */
+function listDetailSel(){
+  const d = state.sessionsDetail;
+  return {s: showsSessions() ? d.types : [], k: showsCardio() ? d.kinds : [], a: showsCardio() ? d.acts : []};
+}
+function listHasDetail(){ const q = listDetailSel(); return q.s.length>0 || q.k.length>0 || q.a.length>0; }
+function listFilterActive(){ return state.sessionsShow!=='all' || listHasDetail(); }
+/* Aucune pastille = tout ; sinon seul ce qui correspond (un domaine sans pastille choisie n'affiche rien). Cardio : type ET activité choisis se combinent. */
+function listMatchesSession(s){
+  if(!showsSessions()) return false;
+  if(!listHasDetail()) return true;
+  const q = listDetailSel();
+  return q.s.length>0 && q.s.includes(classifySessionType(s.name));
+}
+function listMatchesCardio(c){
+  if(!showsCardio()) return false;
+  if(!listHasDetail()) return true;
+  const q = listDetailSel();
+  if(!q.k.length && !q.a.length) return false;
+  return (!q.k.length || q.k.includes(c.kind)) && (!q.a.length || q.a.includes(c.activity));
+}
+function listPillsHtml(){
+  const d = state.sessionsDetail;
+  const pill = (grp, val, label, color, on)=> `<button type="button" class="fpill${on?' active':''}" data-pill="${grp}|${val}" style="--pc:${color};" aria-pressed="${on}">${escapeHtml(label)}</button>`;
+  const sep = '<span class="list-pill-sep"></span>';
+  const groups = [];
+  if(showsSessions()) groups.push(LIST_TYPE_KEYS.map(k=> pill('types', k, k==='other' ? 'Autres' : SESSION_TYPES[k].label, SESSION_TYPES[k].color, d.types.includes(k))).join(''));
+  if(showsCardio()){
+    groups.push(Object.entries(CARDIO_KINDS).map(([k,l])=> pill('kinds', k, l, k==='outdoor' ? 'var(--cardio-outdoor)' : 'var(--steel)', d.kinds.includes(k))).join(''));
+    groups.push(Object.entries(CARDIO_ACTIVITIES).map(([k,l])=> pill('acts', k, l, 'var(--accent)', d.acts.includes(k))).join(''));
+  }
+  return groups.join(sep);
+}
+function domMark(d){
+  return `<span class="dom-mark" title="${d==='c'?'Séance cardio':'Séance'}">${iconSvg(d==='c'?'HEART':'DUMBBELL')}</span>`;
+}
+function drawSessionsFilters(){
+  const pills = document.getElementById('list-pills'); if(!pills) return;
+  pills.innerHTML = listPillsHtml();
+  pills.querySelectorAll('[data-pill]').forEach(b=> b.addEventListener('click', ()=>{
+    const [grp, val] = b.dataset.pill.split('|');
+    const arr = state.sessionsDetail[grp], i = arr.indexOf(val);
+    if(i>=0) arr.splice(i,1); else arr.push(val);
+    const on = arr.includes(val); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on));
+    drawSessionsList();
+  }));
+}
+function drawSessionsList(){
+  const body = document.getElementById('list-body'); if(!body) return;
+  const items = [];
+  state.sessions.forEach(s=>{ if(listMatchesSession(s)) items.push({d:'s', date:s.date, time:'', id:s.id, s}); });
+  state.cardio.forEach(c=>{ if(listMatchesCardio(c)) items.push({d:'c', date:c.date, time:c.time||'', id:c.id, c}); });
+  items.sort((a,b)=> b.date.localeCompare(a.date) || b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
+  const nS = items.filter(i=>i.d==='s').length, nC = items.length - nS;
+  const parts = [];
+  if(showsSessions()) parts.push(`${nS} séance${nS>1?'s':''}`);
+  if(showsCardio()) parts.push(`${nC} séance${nC>1?'s':''} cardio`);
+  const cnt = document.getElementById('list-count'); if(cnt) cnt.textContent = parts.join(' · ');
+  const rst = document.getElementById('list-reset'); if(rst) rst.classList.toggle('on', listFilterActive());
+  const exportIcon = iconSvg('M12 3v12m0 0l-4-4m4 4l4-4M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3');
+  const dot = '<span style="color:var(--muted-2);"> · </span>';
+  if(!state.sessions.length && !state.cardio.length){ body.innerHTML = emptyState('CAL','Aucune séance','Crée ta première séance pour la remplir au fil de ton entraînement.'); return; }
+  if(!items.length){ body.innerHTML = emptyState('CAL','Aucun résultat','Change ou réinitialise les filtres.'); return; }
+  const rowS = s=>{
+    const w = [];
+    if(s.duration!=null) w.push(formatDuration(s.duration));
+    if(s.kcal!=null) w.push(`${s.kcal} kcal`);
+    if(s.hrAvg!=null) w.push(`${s.hrAvg}♥`);
+    if(s.hrMax!=null) w.push(`${s.hrMax}♥max`);
+    return `<tr class="clickable" data-edit-session="${s.id}"><td class="mono" data-label="Date">${fmtDateShort(s.date)}</td><td data-label="Type">${domMark('s')}${sessionBadge(s.name)} <span class="status-pill ${s.validated?'done':'open'}">${s.validated?'Validée':'En cours'}</span></td><td class="mono" data-label="Contenu">${s.entries.length} exercice${s.entries.length>1?'s':''}${dot}${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td><td class="mono" data-label="Données montre" style="font-size:11.5px;color:var(--muted);">${w.length?w.join(' · '):'—'}</td><td data-label=""><button type="button" class="btn ghost icon-btn-square" data-export-session="${s.id}" title="Exporter cette séance en JSON" aria-label="Exporter cette séance en JSON">${exportIcon}</button></td></tr>`;
+  };
+  const rowC = c=>{
+    const w = [cardioFormatSpeed(c), cardioFormatPace(c)];
+    if(c.avgHR!=null || c.maxHR!=null) w.push(`${c.avgHR!=null?c.avgHR+'♥':'—'}${c.maxHR!=null?' / '+c.maxHR+'♥max':''}`);
+    if(c.kcal!=null) w.push(`${c.kcal} kcal`);
+    return `<tr class="clickable" data-edit-cardio="${c.id}"><td class="mono" data-label="Date">${fmtDateShort(c.date)}${c.time?` <span class="muted" style="font-size:11px;">${escapeHtml(c.time)}</span>`:''}</td><td data-label="Type">${domMark('c')}${cardioBadge(c)}${c.place?' <span class="muted">'+escapeHtml(c.place)+'</span>':''}</td><td class="mono" data-label="Contenu">${c.distanceKm.toFixed(2).replace('.',',')} km${dot}${cardioFormatDuration(c.durationMin)}</td><td class="mono" data-label="Données montre" style="font-size:11.5px;color:var(--muted);">${w.join(' · ')}</td><td data-label=""><button type="button" class="btn ghost icon-btn-square" data-export-cardio="${c.id}" title="Exporter cette séance cardio en JSON" aria-label="Exporter cette séance cardio en JSON">${exportIcon}</button></td></tr>`;
+  };
+  body.innerHTML = `<table class="tbl-cards"><thead><tr><th>Date</th><th>Type</th><th>Contenu</th><th>Données montre</th><th></th></tr></thead><tbody>${items.map(i=> i.d==='s' ? rowS(i.s) : rowC(i.c)).join('')}</tbody></table>`;
+  body.querySelectorAll('[data-edit-session]').forEach(row=>row.addEventListener('click', e=>{ if(!e.target.closest('[data-export-session]')) openSessionEditor(row.dataset.editSession); }));
+  body.querySelectorAll('[data-export-session]').forEach(btn=>btn.addEventListener('click', e=>{ e.stopPropagation(); downloadSession(btn.dataset.exportSession, 'json'); }));
+  body.querySelectorAll('[data-edit-cardio]').forEach(row=>row.addEventListener('click', e=>{ if(!e.target.closest('[data-export-cardio]')) openCardioModal(row.dataset.editCardio); }));
+  body.querySelectorAll('[data-export-cardio]').forEach(btn=>btn.addEventListener('click', e=>{ e.stopPropagation(); downloadCardio(btn.dataset.exportCardio); }));
+}
 function renderSessionsView(){
   const el = document.getElementById('view-sessions');
-  const list = state.sessions.slice().sort((a,b)=>b.date.localeCompare(a.date));
   el.innerHTML = `
-    <div class="page-head"><div><h1 class="page-title">Séances</h1><div class="page-sub">Crée, complète et corrige tes séances — chaque modification est sauvegardée immédiatement.</div></div><div style="display:flex;gap:8px;align-items:center;"><button class="btn primary" id="new-session-btn">+ Nouvelle séance</button><div class="more-wrap"><button type="button" class="btn ghost icon-btn-square" id="sessions-more-btn" aria-label="Plus d'actions" aria-haspopup="true" aria-expanded="false">⋯</button><div class="more-menu" id="sessions-more-menu"><button type="button" class="more-item" id="validate-all-btn">Valider toutes les séances en cours</button></div></div></div></div>
-    <div class="card">${list.length ? `<table class="tbl-cards"><thead><tr><th>Date</th><th>Séance</th><th>Exercices</th><th>Volume</th><th>Données montre</th><th></th></tr></thead><tbody>${list.map(s=>{
-      const watchBits = [];
-      if(s.duration!=null) watchBits.push(formatDuration(s.duration));
-      if(s.kcal!=null) watchBits.push(`${s.kcal} kcal`);
-      if(s.hrAvg!=null) watchBits.push(`${s.hrAvg}♥`);
-      if(s.hrMax!=null) watchBits.push(`${s.hrMax}♥max`);
-      return `<tr class="clickable" data-edit-session="${s.id}"><td class="mono" data-label="Date">${fmtDateShort(s.date)}</td><td data-label="Séance">${sessionBadge(s.name)} <span class="status-pill ${s.validated?'done':'open'}">${s.validated?'Validée':'En cours'}</span></td><td data-label="Exercices">${s.entries.length}</td><td class="mono" data-label="Volume">${Math.round(sessionVolume(s)).toLocaleString('fr-FR')} kg</td><td class="mono" data-label="Données montre" style="font-size:11.5px;color:var(--muted);">${watchBits.length?watchBits.join(' · '):'—'}</td><td data-label=""><button type="button" class="btn ghost icon-btn-square" data-export-session="${s.id}" title="Exporter cette séance en JSON" aria-label="Exporter cette séance en JSON">${iconSvg('M12 3v12m0 0l-4-4m4 4l4-4M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3')}</button></td></tr>`;
-    }).join('')}</tbody></table>` : emptyState('CAL','Aucune séance','Crée ta première séance pour la remplir au fil de ton entraînement.')}</div>`;
-  document.getElementById('new-session-btn').addEventListener('click', ()=> createSession());
+    <div class="page-head"><div><h1 class="page-title">Séances</h1><div class="page-sub">Toutes vos séances</div></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><button class="btn primary" id="new-session-btn">+ Nouvelle séance</button><div class="more-wrap"><button type="button" class="btn ghost icon-btn-square" id="sessions-more-btn" aria-label="Plus d'actions" aria-haspopup="true" aria-expanded="false">⋯</button><div class="more-menu" id="sessions-more-menu"><button type="button" class="more-item" id="validate-all-btn">Valider toutes les séances en cours</button></div></div></div></div>
+    <div class="list-filters">
+      ${sessionsShowSegHtml('list-show-group')}
+      <div class="list-pills" id="list-pills"></div>
+      <button type="button" class="btn ghost list-reset" id="list-reset">Réinitialiser</button>
+      <span class="count-pill" id="list-count" style="font-size:11.5px;color:var(--muted-2);white-space:nowrap;"></span>
+    </div>
+    <div class="card" id="list-body"></div>`;
+  document.getElementById('new-session-btn').addEventListener('click', ()=> openNewSession());
   bindMoreMenu('sessions-more-btn', 'sessions-more-menu');
+  bindSessionsShowSeg('list-show-group', ()=>{ drawSessionsFilters(); drawSessionsList(); });
+  document.getElementById('list-reset').addEventListener('click', ()=>{
+    state.sessionsShow = 'all'; state.sessionsDetail = {types:[], kinds:[], acts:[]};
+    renderSessionsView();
+  });
   document.getElementById('validate-all-btn').addEventListener('click', async ()=>{
     closeMoreMenus();
-    const toValidate = list.filter(s=>!s.validated && !s.coop);
+    const toValidate = state.sessions.filter(s=>!s.validated && !s.coop);
     if(!toValidate.length){ showToast('Aucune séance à valider'); return; }
     if(!confirm(`Valider ${toValidate.length} séance(s) ? Leurs exercices passeront en lecture seule (les données montre resteront modifiables).`)) return;
     toValidate.forEach(s=>{ s.validated = true; });
@@ -4739,8 +4911,8 @@ function renderSessionsView(){
     showToast(`${toValidate.length} séance(s) validée(s)`, 'good');
     renderSessionsView();
   });
-  el.querySelectorAll('[data-edit-session]').forEach(row=>row.addEventListener('click', e=>{ if(!e.target.closest('[data-export-session]')) openSessionEditor(row.dataset.editSession); }));
-  el.querySelectorAll('[data-export-session]').forEach(btn=>btn.addEventListener('click', e=>{ e.stopPropagation(); downloadSession(btn.dataset.exportSession, 'json'); }));
+  drawSessionsFilters();
+  drawSessionsList();
 }
 /* Menu « ⋯ » réutilisable : bouton + panneau ; se ferme au clic ailleurs ou avec Échap. */
 function closeMoreMenus(){
@@ -4760,11 +4932,11 @@ function bindMoreMenu(btnId, menuId){
 }
 document.addEventListener('click', closeMoreMenus);
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeMoreMenus(); });
-async function createSession(){
+async function createSession(dateISO, name){
   // Nom vide au départ : l'éditeur s'ouvre sans type présélectionné, pour inviter à choisir
   // Push/Pull/Legs/Upper (ou saisir un nom libre via "Autres").
-  const s = {id:uid(), date:todayISO(), name:'', notes:'', entries:[], duration:null, kcal:null, hrAvg:null, hrMax:null, validated:false};
-  state.sessions.push(s); await saveSessions(); renderNav(); openSessionEditor(s.id);
+  const s = {id:uid(), date:(typeof dateISO==='string'&&dateISO)?dateISO:todayISO(), name:(typeof name==='string'?name:''), notes:'', entries:[], duration:null, kcal:null, hrAvg:null, hrMax:null, validated:false};
+  state.sessions.push(s); await saveSessions(); renderNav(); newSessionId = s.id; openSessionEditor(s.id);
 }
 function formatDuration(min){
   if(min==null) return '';
@@ -5019,7 +5191,7 @@ function renderSessionEditor(sid, highlightIndex, preserveScroll, focusSet, scro
     const info = SESSION_TYPES[t];
     const label = t==='other' ? 'Autres' : info.label;
     return `<button type="button" class="session-type-chip${activeSessionType===t?' active':''}" data-session-type="${t}" style="--chip-color:${info.color};">${label}</button>`;
-  }).join('');
+  }).join('') + ((newSessionId===sid && !s.coop && !isValidated && !(s.entries&&s.entries.length)) ? `<button type="button" class="session-type-chip" id="session-type-cardio" style="--chip-color:var(--accent);">Cardio</button>` : '');
   const sessionAccentColor = activeSessionType ? SESSION_TYPES[activeSessionType].color : null;
   openModal(`<div class="modal-head"><h3 style="font-size:24px;" id="session-title">Séance du ${fmtDateShort(s.date)}</h3><div class="editor-head-right">${(s.coop || users.length>1) ? `<button type="button" class="coop-logo-btn${s.coop?' active':''}" id="coop-menu-btn" style="${coopGradientStyle(coopIds)}" aria-label="${s.coop?'Terminer le mode coop':'Mode coop'}" title="${s.coop?'Terminer le mode coop':'Mode coop'}">${coopLogoSvg()}</button>` : ''}<div class="more-wrap"><button type="button" class="btn ghost icon-btn-square" id="editor-more-btn" aria-label="Plus d'actions" aria-haspopup="true" aria-expanded="false">⋯</button><div class="more-menu" id="editor-more-menu"><button type="button" class="more-item" id="export-session-editor">Exporter</button><button type="button" class="more-item danger" id="delete-session-editor">Supprimer la séance</button></div></div><span class="modal-close" onclick="closeSessionEditor('${sid}')">&times;</span></div></div>
     <div style="margin-bottom:12px;"><label class="field-label">Type de séance</label><div id="session-type-picker" class="session-type-picker">${sessionTypeChipsHtml}</div></div>
@@ -5057,6 +5229,14 @@ function renderSessionEditor(sid, highlightIndex, preserveScroll, focusSet, scro
       modalContent.style.removeProperty('--sm-rgb');
     }
   }
+  const cardioChip = document.getElementById('session-type-cardio');
+  if(cardioChip) cardioChip.addEventListener('click', async ()=>{
+    if(!newSessionIsBlank(sid) && state.sessions.find(x=>x.id===sid).entries.length){ showToast('Séance déjà commencée', 'bad'); return; }
+    newCarry = {date: document.getElementById('session-date').value || todayISO(), time:''};
+    state.sessions = state.sessions.filter(x=>x.id!==sid); newSessionId = null;
+    await saveSessions(); renderNav();
+    openCardioModal();
+  });
   document.querySelectorAll('[data-session-type]').forEach(btn=>btn.addEventListener('click', async ()=>{
     const t = btn.dataset.sessionType;
     const nameField = document.getElementById('session-name');
@@ -5641,7 +5821,7 @@ function renderExercisesView(){
     <div class="page-head">
       <div>
         <h1 class="page-title">Exercices</h1>
-        <div class="page-sub">Classe chaque exercice par groupe musculaire et gère ses variantes de prise</div>
+        <div class="page-sub">Votre bibliothèque</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn primary" id="add-exercise-btn">+ Nouvel exercice</button>
@@ -6193,8 +6373,8 @@ function renderImportView(){
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <h1 class="page-title">Importer une séance</h1>
-        <div class="page-sub">Trois étapes : prépare avec l'IA (facultatif), colle le JSON, vérifie puis importe.</div>
+        <h1 class="page-title">Import</h1>
+        <div class="page-sub">Ajoutez une séance à partir d'un texte ou d'un JSON</div>
       </div>
     </div>
     <details class="details-block" style="margin-top:0;margin-bottom:14px;"><summary>Aide sur le format</summary><div class="details-body" style="font-size:12.5px;color:var(--muted);line-height:1.6;">
@@ -6494,7 +6674,7 @@ function renderBackupView(){
     <div class="page-head">
       <div>
         <h1 class="page-title">Sauvegarde</h1>
-        <div class="page-sub">Exporte tes données pour les récupérer sur un autre appareil</div>
+        <div class="page-sub">Exportez vos données pour les retrouver sur un autre appareil</div>
       </div>
     </div>
     <div class="card">
@@ -6521,7 +6701,7 @@ function renderBackupView(){
       </div>
     </div>
     <details class="details-block" style="border-color:rgba(212,106,106,0.3);"><summary style="color:var(--bad);">Zone de danger</summary><div class="details-body">
-      <p style="color:var(--muted);font-size:13.5px;margin-top:0;">Supprime uniquement les séances et sessions cardio du profil choisi ci-dessous. La base d'exercices (partagée) et les séances des autres profils ne sont pas touchées. Pense à exporter une sauvegarde avant.</p>
+      <p style="color:var(--muted);font-size:13.5px;margin-top:0;">Supprime uniquement les séances et séances cardio du profil choisi ci-dessous. La base d'exercices (partagée) et les séances des autres profils ne sont pas touchées. Pense à exporter une sauvegarde avant.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <select id="reset-user-select" style="max-width:220px;">
           ${users.map(u=>`<option value="${u.id}" ${u.id===currentUserId()?'selected':''}>${escapeHtml(u.name)}</option>`).join('')}
@@ -6688,7 +6868,7 @@ function renderProfilesView(){
     <div class="page-head">
       <div>
         <h1 class="page-title">Profils</h1>
-        <div class="page-sub">Qui s'entraîne ici : nom, couleur, ajout et suppression</div>
+        <div class="page-sub">Qui s'entraîne ici, avec sa couleur</div>
       </div>
     </div>
     <div class="card">
@@ -6983,7 +7163,7 @@ function handleRestoreFile(e){
   reader.readAsText(f);
 }
 async function resetAllData(){
-  if(!confirm("Supprimer définitivement les séances et sessions cardio de TOUS les profils ET la base d'exercices partagée ?")) return;
+  if(!confirm("Supprimer définitivement les séances et séances cardio de TOUS les profils ET la base d'exercices partagée ?")) return;
   const typed = prompt("Pour confirmer, tape le mot SUPPRIMER (en majuscules) :");
   if(typed === null || typed.trim() !== 'SUPPRIMER'){ showToast('Réinitialisation annulée'); return; }
   state.exercises = seedExercises();
@@ -7005,7 +7185,7 @@ async function resetUserData(userId){
   const users = loadUsers();
   const user = users.find(u=>u.id===userId);
   if(!user) return;
-  if(!confirm(`Supprimer définitivement toutes les séances et sessions cardio de "${user.name}" ? Les exercices partagés et l'autre profil ne seront pas affectés.`)) return;
+  if(!confirm(`Supprimer définitivement toutes les séances et séances cardio de "${user.name}" ? Les exercices partagés et l'autre profil ne seront pas affectés.`)) return;
   await writeSessionsForUser(userId, []);
   await writeCardioForUser(userId, []);
   if(userId === currentUserId()){
@@ -7638,14 +7818,14 @@ function compareCardioList(list, range){
 }
 function buildCompareCardioHtml(uA, uB, cA, cB, range){
   const A = cardioSnapshot(compareCardioList(cA, range), range), B = cardioSnapshot(compareCardioList(cB, range), range);
-  if(!A.n && !B.n) return `<div class="card">${emptyState('HEART','Aucune session cardio','Aucun des deux profils n\'a de session cardio sur ces filtres.')}</div>`;
+  if(!A.n && !B.n) return `<div class="card">${emptyState('HEART','Aucune séance cardio','Aucun des deux profils n\'a de séance cardio sur ces filtres.')}</div>`;
   const fKm = v=> v ? cardioFmtNum(v,1)+' km' : '—';
   const fSp = v=> v ? cardioFmtNum(v,1)+' km/h' : '—';
   const fHr = v=> v ? Math.round(v)+' bpm' : '—';
   const fKc = v=> v ? Math.round(v).toLocaleString('fr-FR')+' kcal' : '—';
   return `<div class="cmp-vs-groups">
-    ${cmpVsGroup('Sessions',
-      cmpVsRow('Sessions sur cette période', A.n, B.n, fmtInt) +
+    ${cmpVsGroup('Séances cardio',
+      cmpVsRow('Séances sur cette période', A.n, B.n, fmtInt) +
       cmpVsRow('Moyenne / semaine', A.perWeek, B.perWeek, fmtPerWeek) +
       cmpVsRow('Distance totale', A.km, B.km, fKm) +
       cmpVsRow('Temps total', A.min, B.min, fmtDurCmp))}
@@ -7656,7 +7836,7 @@ function buildCompareCardioHtml(uA, uB, cA, cB, range){
       cmpVsRow('Calories totales', A.kcal, B.kcal, fKc))}
   </div>
   <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Distance dans le temps</div><div style="height:230px;"><canvas id="cmp-cardio-week"></canvas></div></div>
-  <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Sessions par jour de la semaine</div><div style="height:230px;"><canvas id="cmp-cardio-weekday"></canvas></div></div>`;
+  <div class="card cmp-chart-card" style="margin-top:16px;"><div class="section-title">Séances par jour de la semaine</div><div style="height:230px;"><canvas id="cmp-cardio-weekday"></canvas></div></div>`;
 }
 function renderCompareCardioChart(uA, uB, cA, cB, range){
   const lA = compareCardioList(cA, range), lB = compareCardioList(cB, range);
@@ -7771,8 +7951,8 @@ function renderCompareView(){
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <h1 class="page-title">Comparer les profils — ${cardioMode?'Cardio':'Muscu'}</h1>
-        <div class="page-sub">${cardioMode?'Les sessions cardio des deux profils, côte à côte':'Le tableau de bord des deux profils, côte à côte'} — les écarts sont mis en évidence</div>
+        <h1 class="page-title">Comparer</h1>
+        <div class="page-sub">${cardioMode?'Vos profils côte à côte, en séances cardio':'Vos profils côte à côte'}</div>
       </div>
     </div>
     <div class="filter-bar">
